@@ -65,6 +65,13 @@ if [[ ! "$version_string" =~ ^Beyond\ All\ Reason(\ test)?-([0-9]+)-([0-9a-f]{7,
   exit 1
 fi
 commit_sha="${BASH_REMATCH[3]}"
+# BAR's engine-facing archive name is `name + " " + version` where both come
+# from modinfo.lua. The startscript's GameType must equal that concatenation.
+# So for --version "Beyond All Reason test-29871-90f4bc1", the version field
+# that gets written into modinfo.lua is "test-29871-90f4bc1" (i.e. the whole
+# input minus the leading "Beyond All Reason " prefix).
+mod_version="${version_string#Beyond All Reason }"
+mod_version="${mod_version#-}"  # handle non-test form "Beyond All Reason-<build>-<sha>"
 
 # ---- pre-flight ----
 command -v git >/dev/null || { echo "git not found on PATH" >&2; exit 1; }
@@ -104,7 +111,33 @@ echo "[build-bar-content] checkout $commit_sha" >&2
 git -C "$clone_dir" checkout --detach --quiet "$commit_sha"
 git -C "$clone_dir" submodule update --init --recursive >&2
 
+# ---- patch modinfo.lua ----
+# BAR's modinfo.lua ships with `version = '$VERSION'` as a release-time
+# placeholder. The engine's archive scanner keys on `name + " " + version`,
+# so if we don't resolve it the archive registers as "Beyond All Reason
+# $VERSION" and the startscript's GameType won't match.
+modinfo="$clone_dir/modinfo.lua"
+if [[ ! -f "$modinfo" ]]; then
+  echo "[build-bar-content] modinfo.lua missing at $modinfo" >&2
+  exit 1
+fi
+if ! grep -q '\$VERSION' "$modinfo"; then
+  echo "[build-bar-content] warning: \$VERSION placeholder not found in modinfo.lua; leaving untouched" >&2
+else
+  python3 - "$modinfo" "$mod_version" <<'PY'
+import sys
+path, version = sys.argv[1], sys.argv[2]
+with open(path) as f:
+    content = f.read()
+with open(path, 'w') as f:
+    f.write(content.replace('$VERSION', version))
+PY
+  echo "[build-bar-content] modinfo.lua: \$VERSION -> $mod_version" >&2
+fi
+
 # ---- write VERSION ----
+# Kept alongside the modinfo patch for any tooling that reads the .sdd's
+# VERSION file directly (harmless if unused).
 printf '%s\n' "$version_string" > "$clone_dir/VERSION"
 echo "[build-bar-content] wrote VERSION: $version_string" >&2
 

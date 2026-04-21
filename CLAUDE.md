@@ -198,9 +198,32 @@ wheel + manifest under `gs://<artifacts-bucket>/<job_uid>/` (see
 If a future change needs to push the catalog or scenario scheme into the
 production orchestrator, treat it as a deliberate redesign, not a refactor.
 
-`fake-runner.sh` mirrors the on-VM environment: it sets the same `BAR_*`
-env vars `orchestrator/batch_submitter.py` sets in production, lays out
-the directory tree `paths.py` expects under `.smoke/fake-runner/`, and
-invokes `uv run python -m bar_benchmarks.task.main`. Downloaded artifacts
-are cached at `.smoke/fake-runner/cache/<bucket>/<key>` so re-runs skip
-the network.
+`fake-runner.sh` impersonates a Batch Task VM: it builds the
+`bar_benchmarks` wheel into `$workdir/artifacts`, stages the five
+artifacts there, then runs `batch_submitter.BOOTSTRAP_SCRIPT` (extracted
+verbatim from the Python module) followed by
+`python3 -m bar_benchmarks.task.main` inside a `linux/amd64`
+`debian:12-slim` Docker container (`scripts/fake-runner.Dockerfile`).
+Mounts place `$workdir/{artifacts,results,data,run,engine}` at the
+canonical Batch paths (`/mnt/artifacts`, `/mnt/results`,
+`/var/bar-data`, `/var/bar-run`, `/opt/recoil`). On Apple Silicon this
+requires Docker Desktop with Rosetta enabled (Settings → General → "Use
+Rosetta for x86_64/amd64 emulation") so the amd64 `spring-headless`
+binary can execute. Downloaded artifacts are cached at
+`.smoke/fake-runner/cache/<bucket>/<key>` so re-runs skip the network.
+
+If the Dockerfile's package set ever needs to grow (e.g. spring-headless
+complains about a missing lib), update **both** the Dockerfile and
+`batch_submitter.BOOTSTRAP_SCRIPT` in the same commit — fidelity is the
+whole point.
+
+Example invocation (engine/bar-content/map are catalog names; scenario
+is `benchmarks/lategame1/`):
+
+```
+scripts/fake-runner.sh \
+    --engine recoil-5c157c8 \
+    --bar-content bar-test-29871-90f4bc1 \
+    --map hellas-basin-v1.4 \
+    --scenario lategame1
+```

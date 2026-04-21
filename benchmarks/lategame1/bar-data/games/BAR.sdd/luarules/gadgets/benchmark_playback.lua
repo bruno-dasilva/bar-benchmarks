@@ -596,28 +596,38 @@ else
 		return { count = count, total = total, mean = mean, spread = spread, pct = pct }
 	end
 
-	local function appendTimingStats(lines)
+	local function collectStreamStats()
 		local streams = {
-			{ name = "Sim",    samples = simFrameTimes    },
-			{ name = "Update", samples = updateFrameTimes },
-			{ name = "Draw",   samples = drawFrameTimes   },
+			{ key = "sim",    samples = simFrameTimes    },
+			{ key = "update", samples = updateFrameTimes },
+			{ key = "draw",   samples = drawFrameTimes   },
 		}
+		local out = {}
 		for _, s in ipairs(streams) do
 			local ms = computeStats(s.samples)
 			if ms then
-				lines[#lines + 1] = ""
-				lines[#lines + 1] = string.format(
-					"%s: %d frames, mean=%.3fms, spread=%.3fms, total=%.3fs",
-					s.name, ms.count, ms.mean, ms.spread, ms.total / 1000)
+				local pct = {}
 				for _, p in ipairs(PERCENTILES) do
-					lines[#lines + 1] = string.format("  p%d = %.3fms", p, ms.pct[p] or 0)
+					pct[tostring(p)] = ms.pct[p] or 0
 				end
+				out[s.key] = {
+					count       = ms.count,
+					mean_ms     = ms.mean,
+					spread_ms   = ms.spread,
+					total_s     = ms.total / 1000,
+					percentiles = pct,
+				}
 				Spring.Echo(string.format(
 					"[BenchmarkPlayback] %s: n=%d mean=%.3fms p50=%.3fms p95=%.3fms p99=%.3fms",
-					s.name, ms.count, ms.mean, ms.pct[50] or 0, ms.pct[95] or 0, ms.pct[99] or 0))
+					s.key, ms.count, ms.mean, ms.pct[50] or 0, ms.pct[95] or 0, ms.pct[99] or 0))
 			end
 		end
+		return out
 	end
+
+	-- BAR's init.lua loads Json as a global (common/luaUtilities/json.lua);
+	-- fall back to VFS.Include if for some reason it wasn't set yet.
+	local Json = Json or VFS.Include('common/luaUtilities/json.lua')
 
 	function gadget:Initialize()
 		Spring.Echo("[BenchmarkPlayback] (unsynced) Initialize: opening snapshot")
@@ -684,21 +694,29 @@ else
 			Spring.Echo(string.format(
 				"[BenchmarkPlayback] DONE. %d sim frames in %.3fs wall = %.1f frames/s.",
 				simFrames, wall, simFrames / wall))
-			local lines = {
-				string.format("Benchmark results %s", os.date("%Y-%m-%d %H:%M:%S")),
-				string.format("Map: %s", tostring(Game.mapName)),
-				string.format("Game: %s %s", tostring(Game.gameName), tostring(Game.gameVersion)),
-				string.format("Engine: %s", tostring(Engine.versionFull)),
-				string.format("frames=%d wall_s=%.6f fps=%.3f", simFrames, wall, simFrames / wall),
+			local report = {
+				timestamp    = os.date("%Y-%m-%d %H:%M:%S"),
+				map          = tostring(Game.mapName),
+				game_name    = tostring(Game.gameName),
+				game_version = tostring(Game.gameVersion),
+				engine       = tostring(Engine.versionFull),
+				sim_frames   = simFrames,
+				wall_s       = wall,
+				fps          = simFrames / wall,
+				streams      = collectStreamStats(),
 			}
-			appendTimingStats(lines)
-			local path = string.format("benchmark-%s.txt", os.date("%Y%m%d_%H%M%S"))
-			local out = io.open(path, "w")
+			-- Filename matches the harness default at src/bar_benchmarks/paths.py
+			-- and scripts/fake-runner.sh. Spring's unsynced Lua sandbox doesn't
+			-- expose os.getenv, so we can't read BAR_BENCHMARK_OUTPUT_PATH here.
+			local path = "benchmark-results.json"
+			local out = io.open(path, "wb")
 			if out then
-				out:write(table.concat(lines, "\n"))
+				out:write(Json.encode(report))
 				out:write("\n")
 				out:close()
 				Spring.Echo("[BenchmarkPlayback] wrote results to " .. path)
+			else
+				Spring.Echo("[BenchmarkPlayback] ERROR: cannot open " .. path .. " for writing")
 			end
 			Spring.SendCommands("quitforce")
 		end)
