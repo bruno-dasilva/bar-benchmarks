@@ -30,7 +30,12 @@ MANIFEST_NAME = "manifest.json"
 def _extract_tarball(src: Path, dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     with tarfile.open(src, "r:*") as tf:
-        tf.extractall(dest, filter="data")
+        # filter kwarg arrived in Python 3.11.4 (PEP 706 backport);
+        # Debian 12 / batch-debian still ship 3.11.2.
+        try:
+            tf.extractall(dest, filter="data")
+        except TypeError:
+            tf.extractall(dest)
 
 
 def _stage(artifacts: Path, map_filename: str) -> Path:
@@ -46,7 +51,11 @@ def _stage(artifacts: Path, map_filename: str) -> Path:
 
     _extract_tarball(artifacts / ENGINE_TARBALL, engine_root)
     _extract_tarball(artifacts / BAR_CONTENT_TARBALL, bar_sdd)
-    _extract_tarball(artifacts / OVERLAY_TARBALL, bar_sdd)
+    # The overlay tarball mirrors /var/bar-data/ — files under games/BAR.sdd/
+    # overwrite/extend the game content (standard overlay use), while files
+    # at other paths drop extras (e.g. a benchmark_snapshot.lua) into
+    # /var/bar-data/ so the engine's write-dir picks them up.
+    _extract_tarball(artifacts / OVERLAY_TARBALL, data)
 
     shutil.copy2(artifacts / map_filename, maps / map_filename)
 

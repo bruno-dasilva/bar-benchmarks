@@ -10,8 +10,10 @@ def test_stage_lays_out_filesystem(task_env, tiny_artifacts):
     bar_sdd = task_env["data"] / "games" / "BAR.sdd"
     assert (task_env["engine"] / "spring-headless").is_file()
     assert (bar_sdd / "VERSION").read_text().strip() == "1.2.3"
-    # overlay overwrote shared.lua, added extra.lua
+    # overlay overwrote shared.lua, added extra.lua (both via games/BAR.sdd/ path)
     assert (bar_sdd / "shared.lua").read_text() == "-- overlay wins\n"
     assert (bar_sdd / "extra.lua").is_file()
+    # overlay also drops a file directly into /var/bar-data/ (bar-data extra)
+    assert (task_env["data"] / "benchmark_snapshot.lua").is_file()
     assert (task_env["data"] / "maps" / map_filename).read_bytes() == b"map-bytes"
     assert startscript == task_env["artifacts"] / "startscript.txt"

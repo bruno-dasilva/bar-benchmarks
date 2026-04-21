@@ -1,29 +1,42 @@
 # Artifact catalog for scripts/fake-runner.sh and scripts/fake-orchestrator.sh.
 #
-# Each section is one of the five runner inputs. Keys inside a section are
-# names — human-readable handles for reusable artifacts. Values are the
-# gs:// URI where the artifact lives (or will live, once published).
+# Covers the three artifact types that live outside this repo: engine,
+# bar_content, and map. Overlay and startscript are repo-local — they live
+# as files under benchmarks/<scenario>/ and are selected by `--scenario NAME`,
+# not by catalog lookup.
 #
-# Names are decoupled from any single job submission, so the same engine can
-# be paired with different content versions and vice versa. To publish a new
-# artifact under a name, add the entry here and then run
-# `fake-orchestrator.sh --<type> <name> path/to/file`.
+# Names inside a section are human-readable handles, decoupled from any
+# single job submission. To publish a new artifact under a name, add the
+# entry here and then run `fake-orchestrator.sh --<type> <name> path/to/file`.
 #
-# The map entry's URI basename becomes the on-disk filename (the runner reads
-# map_filename from the synthesized manifest, see
+# The map entry's dest URI basename becomes the on-disk filename (the runner
+# reads map_filename from the synthesized manifest, see
 # src/bar_benchmarks/task/runner.py:79).
+#
+# Map entries may be either a bare gs:// URI (user-built map, publish with
+# `fake-orchestrator.sh --map NAME FILE`) or a TOML table of the shape
+# `{source = "https://...", dest = "gs://..."}`. For the latter, invoking
+# `fake-orchestrator.sh --map NAME` (no FILE) fetches `source` into a temp
+# file and uploads to `dest` — use this to mirror maps hosted on
+# springfiles.com into the artifacts bucket.
 
 [engine]
 # recoil-2025-04 = "gs://bar-experiments-bench-artifacts/engine/recoil-2025-04.tar.gz"
+recoil-5c157c8 = "gs://bar-experiments-bench-artifacts/engine/recoil-5c157c8.tar.gz"
 
 [bar_content]
 # bar-1.2.3 = "gs://bar-experiments-bench-artifacts/bar-content/bar-1.2.3.tar.gz"
-
-[overlay]
-# benchmark-v1 = "gs://bar-experiments-bench-artifacts/overlays/benchmark-v1.tar.gz"
+bar-test-29871-90f4bc1 = "gs://bar-experiments-bench-artifacts/bar-content/bar-test-29871-90f4bc1.tar.gz"
 
 [map]
+# Bare string: local file to publish.
 # tiny = "gs://bar-experiments-bench-artifacts/maps/tiny.smf"
+#
+# Table: mirror from an upstream URL (springfiles etc.) into the artifacts bucket.
+# [map.techno]
+# source = "https://springfiles.springrts.com/files/maps/techno_lands_final_cataclysm_defense_1.6.sd7"
+# dest   = "gs://bar-experiments-bench-artifacts/maps/techno_lands_final_cataclysm_defense_1.6.sd7"
 
-[startscript]
-# scenario-a = "gs://bar-experiments-bench-artifacts/scenarios/scenario-a.txt"
+[map."hellas-basin-v1.4"]
+source = "https://springfiles.springrts.com/files/maps/hellas_basin_v1.4.sd7"
+dest   = "gs://bar-experiments-bench-artifacts/maps/hellas_basin_v1.4.sd7"

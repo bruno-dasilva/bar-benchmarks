@@ -70,9 +70,15 @@ def tiny_artifacts(task_env):
         artifacts / "bar-content.tar.gz",
         {"VERSION": "1.2.3\n", "shared.lua": "-- base"},
     )
+    # Overlay mirrors /var/bar-data/: files under games/BAR.sdd/ override
+    # bar-content, and top-level files are bar-data extras.
     _make_tarball(
         artifacts / "overlay.tar.gz",
-        {"shared.lua": "-- overlay wins\n", "extra.lua": "-- added"},
+        {
+            "games/BAR.sdd/shared.lua": "-- overlay wins\n",
+            "games/BAR.sdd/extra.lua": "-- added",
+            "benchmark_snapshot.lua": "-- extra drop at bar-data root",
+        },
     )
     (artifacts / map_filename).write_bytes(b"map-bytes")
     (artifacts / "startscript.txt").write_text("[GAME] { ... }\n")

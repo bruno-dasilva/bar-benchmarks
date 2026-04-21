@@ -102,9 +102,11 @@ disk, then invokes the engine. Concrete steps:
 1. Create `/opt/recoil`, `/var/bar-data/{games,maps}`, `/var/bar-run`.
 2. Extract `engine.tar.gz` → `/opt/recoil/`.
 3. Extract `bar-content.tar.gz` → `/var/bar-data/games/BAR.sdd/`.
-4. Extract `overlay.tar.gz` on top of `/var/bar-data/games/BAR.sdd/`
-   (overwrite on conflict — this is how benchmarking widgets replace or
-   add to the base content).
+4. Extract `overlay.tar.gz` on top of `/var/bar-data/`. The tarball mirrors
+   the write-dir: files under `games/BAR.sdd/` override/extend the base
+   game content (how benchmarking widgets replace engine-side Lua); files
+   at other paths drop extras into the write-dir so the engine picks them
+   up via VFS (e.g. a `benchmark_snapshot.lua` alongside the games dir).
 5. Copy the map archive into `/var/bar-data/maps/`.
 6. Sanity-check `BAR.sdd/VERSION` and the map file exist.
 7. Exec `/opt/recoil/spring-headless --isolation --write-dir /var/bar-data
@@ -180,13 +182,14 @@ Lua gadgets/widgets decide to emit.
   spring-headless
   <engine libs + data>
 
-/var/bar-data/           (local — the engine's --write-dir)
+/var/bar-data/           (local — the engine's --write-dir; overlay extracts here)
   games/
-    BAR.sdd/             (bar-content extracted, overlay merged on top)
+    BAR.sdd/             (bar-content extracted; overlay merges under games/BAR.sdd/)
       VERSION            (binds to Beyond-All-Reason-<VERSION>)
       ...
   maps/
     <map-file>
+  <overlay extras>       (any non-BAR.sdd files from overlay.tar.gz land here)
   benchmark-results.json (written by overlay at scenario end; path configurable)
   infolog.txt            (engine log)
 

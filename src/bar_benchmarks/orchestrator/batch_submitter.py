@@ -29,7 +29,10 @@ set -eu
 apt-get update -y >/dev/null
 apt-get install -y --no-install-recommends python3 python3-pip python3-venv >/dev/null
 WHEEL="$(ls /mnt/artifacts/bar_benchmarks-*.whl | head -n1)"
-python3 -m pip install --break-system-packages --no-deps "$WHEEL" pydantic
+# Install pydantic with its deps (pulls pydantic_core), then the wheel
+# without deps (skips control-host-only deps like typer, google-cloud-*).
+python3 -m pip install --break-system-packages pydantic
+python3 -m pip install --break-system-packages --no-deps "$WHEEL"
 """
 
 

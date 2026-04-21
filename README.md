@@ -34,9 +34,12 @@ bucket and mounted read-only into each VM:
    [Beyond-All-Reason/Beyond-All-Reason](https://github.com/beyond-all-reason/Beyond-All-Reason)
    git checkout at a specific commit. Populates `games/BAR.sdd/` on the
    VM; its `VERSION` file binds the archive to `Beyond-All-Reason-<VERSION>`.
-3. **`overlay.tar.gz`** — tarball of extra Lua widgets/gadgets that
-   instrument the game for benchmarking. Merged on top of `BAR.sdd/`
-   (added or overwritten).
+3. **`overlay.tar.gz`** — tarball of scenario-specific files that extend the
+   engine's write-dir. Extracted onto `/var/bar-data/`: anything under
+   `games/BAR.sdd/` overrides/adds to the base game content (this is how
+   benchmarking widgets replace engine-side Lua); anything at other paths
+   drops extras into the write-dir for the engine to load via VFS (e.g. a
+   `benchmark_snapshot.lua` used by a replay gadget).
 4. **Map archive** — raw Spring map file (e.g. `<name>.sd7`). Placed in
    `maps/`.
 5. **`startscript.txt`** — the scenario definition (teams, units, AI,
@@ -44,7 +47,9 @@ bucket and mounted read-only into each VM:
    the matching `Beyond-All-Reason-<VERSION>`.
 
 The harness treats these as opaque inputs. It does not repack or mutate
-them.
+them. On local iteration (see below), overlay and startscript are
+synthesized from a repo-local `benchmarks/<scenario>/` folder, but the
+production contract is still the five artifacts above.
 
 ## Run lifecycle
 
@@ -58,8 +63,10 @@ For each batch:
    baseline. VMs that fall outside spec are abandoned (noisy-neighbor filter)
    before the real run starts.
 4. **Run scenario** — each surviving VM extracts the engine tarball to
-   `/opt/recoil/`, stages `BAR.sdd` + overlay under `/var/bar-data/games/`,
-   places the map under `/var/bar-data/maps/`, and invokes:
+   `/opt/recoil/`, stages `BAR.sdd` under `/var/bar-data/games/`, extracts
+   the overlay on top of `/var/bar-data/` (which overrides `BAR.sdd/`
+   content and drops any extra files alongside), places the map under
+   `/var/bar-data/maps/`, and invokes:
    `spring-headless --isolation --write-dir /var/bar-data <startscript>`.
    Benchmark data is written by the overlay to a JSON file inside the
    write-dir.
@@ -116,40 +123,101 @@ and `--max-run-duration`.
 
 ## Local iteration
 
-For iterating on the task-side pipeline (preflight + runner) without
-round-tripping through GCP Batch, two scripts in `scripts/` operate against
-a named-artifact catalog at [`scripts/artifacts.toml`](./scripts/artifacts.toml).
-Each catalog entry maps a human-readable name (e.g. `recoil-2025-04`,
-`bar-1.2.3`) to a `gs://` URI. Names decouple artifacts from any single
-job submission, so the same engine can be paired with different content
-versions and vice versa.
+Five helpers in `scripts/` let the task-side pipeline be exercised without
+round-tripping through GCP Batch. The first three build artifacts from
+upstream sources; the last two publish them and run the task container.
 
-Add an entry to the catalog by hand, then publish a local file under that
-name:
+### Builders
+
+- **`scripts/build-engine.sh --commit SHA --output FILE`** — pulls the
+  latest successful "Build Engine v2" GitHub Actions run for the given
+  RecoilEngine commit, downloads its `engine-artifacts-amd64-linux-*`
+  artifact, extracts the inner `.7z`, and repacks the install tree as
+  `engine.tar.gz` with `spring-headless` at the root. Requires `gh`
+  (authenticated), `7z`/`7zz`, `unzip`, `tar`. Caches per-commit under
+  `.smoke/engine-build/<sha>/`.
+- **`scripts/build-bar-content.sh --version "Beyond All Reason test-<build>-<sha>" --output FILE`** —
+  clones `beyond-all-reason/Beyond-All-Reason` (persistent cache at
+  `.smoke/bar-content-build/Beyond-All-Reason/`), checks out `<sha>`,
+  writes a matching `VERSION` file at the clone root, and tars the tree
+  as `bar-content.tar.gz`.
+- **`scripts/build-startscript.sh --template FILE --version X [--map Y] --output FILE`** —
+  patches the `GameType=` and (optionally) `Mapname=` lines of a template
+  startscript. Useful when syncing a scenario's startscript to a new
+  bar-content build.
+
+### Publishing and running
+
+- **`scripts/fake-orchestrator.sh --engine|--bar-content|--map NAME [FILE]`** —
+  publishes a local tarball/file to the gs:// URI named in
+  [`scripts/artifacts.toml`](./scripts/artifacts.toml). Map entries shaped
+  `{source = "https://...", dest = "gs://..."}` mirror from the source URL
+  to the dest bucket (no `FILE` argument); use this to pull maps from
+  springfiles.com straight into your artifacts bucket.
+- **`scripts/fake-runner.sh --engine NAME --bar-content NAME --map NAME --scenario NAME`** —
+  runs the task-side Python pipeline in a Docker container impersonating
+  a Batch VM. Engine/bar-content/map are resolved through the catalog;
+  the scenario is a repo-local folder. Exports the same `BAR_*` env vars
+  the production Batch VM gets, lays out
+  `.smoke/fake-runner/{artifacts,data,run,engine,results}/` to mirror the
+  on-VM directory layout, and invokes `uv run python -m bar_benchmarks.task.main`.
+
+The catalog is a dev-side parallel addressing scheme. The production
+orchestrator's bucket layout (`<job_uid>/...`) is unchanged.
+
+### Scenario folders
+
+Each benchmark scenario is a subdirectory of `benchmarks/`:
 
 ```
-./scripts/fake-orchestrator.sh --engine recoil-2025-04 path/to/engine.tar.gz
+benchmarks/<name>/
+  startscript.txt                  # passed verbatim to spring-headless
+  bar-data/                        # the overlay tree
+    <extras>.lua                   # drops into /var/bar-data/ (loaded via VFS)
+    games/BAR.sdd/
+      luarules/gadgets/<bench>.lua # overrides/adds to the base bar-content
 ```
 
-Run the task pipeline against any combination of named artifacts. First run
-downloads them; subsequent runs reuse the on-disk cache under
-`.smoke/fake-runner/cache/`:
+`fake-runner.sh` uses `scenario/startscript.txt` directly and tars
+`scenario/bar-data/` on the fly into the `overlay.tar.gz` the task-side
+runner expects.
 
-```
-./scripts/fake-runner.sh \
-    --engine recoil-2025-04 \
-    --bar-content bar-1.2.3 \
-    --overlay benchmark-v1 \
-    --map tiny \
-    --startscript scenario-a
-```
+### End-to-end example
 
-`fake-runner.sh` exports the same `BAR_*` env vars the production Batch
-VM gets, lays out `.smoke/fake-runner/{artifacts,data,run,engine,results}/`
-to mirror the on-VM directory layout, and invokes
-`uv run python -m bar_benchmarks.task.main`. The production orchestrator's
-bucket layout (`<job_uid>/...`) is unchanged; the catalog is a parallel
-addressing scheme used only by these dev-side scripts.
+Using the `benchmarks/lategame1/` scenario, RecoilEngine commit
+`5c157c84bf11cfeadadade183f373b03cdb9fb7a`, and BAR commit `90f4bc1`:
+
+```bash
+# 1. Build the engine and bar-content tarballs locally
+scripts/build-engine.sh \
+    --commit 5c157c84bf11cfeadadade183f373b03cdb9fb7a \
+    --output /tmp/recoil-5c157c8.tar.gz
+
+scripts/build-bar-content.sh \
+    --version "Beyond All Reason test-29871-90f4bc1" \
+    --output /tmp/bar-test-29871-90f4bc1.tar.gz
+
+# 2. Register catalog entries in scripts/artifacts.toml:
+#   [engine]
+#   recoil-5c157c8 = "gs://bar-experiments-bench-artifacts/engine/recoil-5c157c8.tar.gz"
+#   [bar_content]
+#   bar-test-29871-90f4bc1 = "gs://bar-experiments-bench-artifacts/bar-content/bar-test-29871-90f4bc1.tar.gz"
+#   [map."hellas-basin-v1.4"]
+#   source = "https://springfiles.springrts.com/files/maps/hellas_basin_v1.4.sd7"
+#   dest   = "gs://bar-experiments-bench-artifacts/maps/hellas_basin_v1.4.sd7"
+
+# 3. Publish to the artifacts bucket
+scripts/fake-orchestrator.sh --engine      recoil-5c157c8         /tmp/recoil-5c157c8.tar.gz
+scripts/fake-orchestrator.sh --bar-content bar-test-29871-90f4bc1 /tmp/bar-test-29871-90f4bc1.tar.gz
+scripts/fake-orchestrator.sh --map         hellas-basin-v1.4      # mirrors from springfiles
+
+# 4. Run the task pipeline
+scripts/fake-runner.sh \
+    --engine      recoil-5c157c8 \
+    --bar-content bar-test-29871-90f4bc1 \
+    --map         hellas-basin-v1.4 \
+    --scenario    lategame1
+```
 
 ## Prerequisites
 

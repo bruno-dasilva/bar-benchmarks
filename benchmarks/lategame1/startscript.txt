@@ -1,0 +1,79 @@
+// Playback startscript for the Hellas Basin v1.4 / BAR snapshot.
+// Generated to match benchmark_snapshot.lua's env: 27 teams across 3 allyteams.
+//
+// Invocation: ./engine-headless playback_script.txt
+//
+// The benchmark_playback gadget must be present in the mod's luarules/gadgets/
+// (or a sidearchive overlay). Snapshot file benchmark_snapshot.lua must be in
+// the engine write dir (reachable via VFS).
+
+[GAME]
+{
+	IsHost=1;
+	MyPlayerName=BenchmarkHost;
+	Mapname=Hellas Basin v1.4;
+	GameType=Beyond All Reason test-29871-90f4bc1;
+	GameID=00000000000000000000000000000001;
+	StartPosType=0;
+
+	[modoptions]
+	{
+		// BAR's debugcommands gadget fires console commands at specified frames.
+		// Format: frame:command|frame:command|...
+		// Max-out speed before triggering the benchmark so the measured window
+		// runs as fast as hardware allows. Default MaxSpeed is 20, no cheats needed.
+		// bench_start fires at frame 60 to give the unsynced half time to stream
+		// the snapshot across via chunked SendLuaRulesMsg (synced can't read raw
+		// files without LuaDevMode, which breaks BAR's gadget loader).
+		debugcommands=1:cheat|2:speedcontrol 1|3:setspeed 20|4: globallos|100:luarules bench_start|105:deselect;
+	}
+
+	[PLAYER0]
+	{
+		// Must NOT be Spectator=1. Spring hardcodes all spectators onto team 0
+		// regardless of any Team= line (see GameSetup.cpp:519-521 RemapTeams),
+		// and a spectator-assigned team gets maxUnits=0, silently failing every
+		// CreateUnit on team 0. For headless benchmark, Player0 is a normal
+		// (nominal) player on team 0 — they never input, and BAR's initial
+		// commander for team 0 gets cleared with the other pre-existing units.
+		Name=BenchmarkHost;
+		Team=0;
+	}
+
+	// AllyTeam 0 — teams 0..12
+	[TEAM0]  { TeamLeader=0; AllyTeam=0; RGBColor=0.9 0.1 0.1; Side=armada; Handicap=0; }
+	[TEAM1]  { TeamLeader=0; AllyTeam=0; RGBColor=0.9 0.2 0.1; Side=armada; Handicap=0; }
+	[TEAM2]  { TeamLeader=0; AllyTeam=0; RGBColor=0.9 0.3 0.1; Side=cortex; Handicap=0; }
+	[TEAM3]  { TeamLeader=0; AllyTeam=0; RGBColor=0.9 0.4 0.1; Side=cortex; Handicap=0; }
+	[TEAM4]  { TeamLeader=0; AllyTeam=0; RGBColor=0.9 0.5 0.1; Side=cortex; Handicap=0; }
+	[TEAM5]  { TeamLeader=0; AllyTeam=0; RGBColor=0.9 0.6 0.1; Side=cortex; Handicap=0; }
+	[TEAM6]  { TeamLeader=0; AllyTeam=0; RGBColor=0.9 0.7 0.1; Side=cortex; Handicap=0; }
+	[TEAM7]  { TeamLeader=0; AllyTeam=0; RGBColor=0.9 0.8 0.1; Side=armada; Handicap=0; }
+	[TEAM8]  { TeamLeader=0; AllyTeam=0; RGBColor=0.9 0.9 0.1; Side=armada; Handicap=0; }
+	[TEAM9]  { TeamLeader=0; AllyTeam=0; RGBColor=0.8 0.1 0.1; Side=cortex; Handicap=0; }
+	[TEAM10] { TeamLeader=0; AllyTeam=0; RGBColor=0.8 0.2 0.1; Side=cortex; Handicap=0; }
+	[TEAM11] { TeamLeader=0; AllyTeam=0; RGBColor=0.8 0.3 0.1; Side=armada; Handicap=0; }
+	[TEAM12] { TeamLeader=0; AllyTeam=0; RGBColor=0.8 0.4 0.1; Side=armada; Handicap=0; }
+
+	// AllyTeam 1 — teams 13..25
+	[TEAM13] { TeamLeader=0; AllyTeam=1; RGBColor=0.1 0.1 0.9; Side=armada; Handicap=0; }
+	[TEAM14] { TeamLeader=0; AllyTeam=1; RGBColor=0.1 0.2 0.9; Side=cortex; Handicap=0; }
+	[TEAM15] { TeamLeader=0; AllyTeam=1; RGBColor=0.1 0.3 0.9; Side=random; Handicap=0; }
+	[TEAM16] { TeamLeader=0; AllyTeam=1; RGBColor=0.1 0.4 0.9; Side=cortex; Handicap=0; }
+	[TEAM17] { TeamLeader=0; AllyTeam=1; RGBColor=0.1 0.5 0.9; Side=armada; Handicap=0; }
+	[TEAM18] { TeamLeader=0; AllyTeam=1; RGBColor=0.1 0.6 0.9; Side=armada; Handicap=0; }
+	[TEAM19] { TeamLeader=0; AllyTeam=1; RGBColor=0.1 0.7 0.9; Side=armada; Handicap=0; }
+	[TEAM20] { TeamLeader=0; AllyTeam=1; RGBColor=0.1 0.8 0.9; Side=armada; Handicap=0; }
+	[TEAM21] { TeamLeader=0; AllyTeam=1; RGBColor=0.1 0.9 0.9; Side=armada; Handicap=0; }
+	[TEAM22] { TeamLeader=0; AllyTeam=1; RGBColor=0.2 0.1 0.9; Side=random; Handicap=0; }
+	[TEAM23] { TeamLeader=0; AllyTeam=1; RGBColor=0.2 0.2 0.9; Side=cortex; Handicap=0; }
+	[TEAM24] { TeamLeader=0; AllyTeam=1; RGBColor=0.2 0.3 0.9; Side=cortex; Handicap=0; }
+	[TEAM25] { TeamLeader=0; AllyTeam=1; RGBColor=0.2 0.4 0.9; Side=armada; Handicap=0; }
+
+	// Gaia (team 26, allyTeam 2 in the snapshot) is NOT declared here — the
+	// engine auto-creates it at teamID=teams.size() / allyTeamID=allyTeams.size()
+	// (see rts/Sim/Misc/TeamHandler.cpp), which lands at 26/2, matching the snapshot.
+
+	[ALLYTEAM0] { NumAllies=0; }
+	[ALLYTEAM1] { NumAllies=0; }
+}
