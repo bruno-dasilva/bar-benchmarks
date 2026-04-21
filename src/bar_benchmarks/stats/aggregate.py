@@ -37,14 +37,10 @@ def summarize(results: Iterable[Result], *, submitted: int, job_uid: str) -> Bat
     if missing > 0:
         reasons["infrastructure_failure"] += missing
 
-    wall_times = [
-        r.run.timings["engine_wall_s"]
-        for r in valid
-        if "engine_wall_s" in r.run.timings
-    ]
-    mean = statistics.fmean(wall_times) if wall_times else None
-    median = statistics.median(wall_times) if wall_times else None
-    p95 = _p95(wall_times)
+    sim_ms = [ms for r in valid if (ms := _sim_mean_ms(r)) is not None]
+    mean = statistics.fmean(sim_ms) if sim_ms else None
+    median = statistics.median(sim_ms) if sim_ms else None
+    p95 = _p95(sim_ms)
 
     return BatchReport(
         job_uid=job_uid,
@@ -52,10 +48,24 @@ def summarize(results: Iterable[Result], *, submitted: int, job_uid: str) -> Bat
         valid=len(valid),
         invalid=len(invalid) + missing,
         invalid_reasons=dict(reasons),
-        wall_time_mean_s=mean,
-        wall_time_median_s=median,
-        wall_time_p95_s=p95,
+        sim_mean_ms_mean=mean,
+        sim_mean_ms_median=median,
+        sim_mean_ms_p95=p95,
     )
+
+
+def _sim_mean_ms(result: Result) -> float | None:
+    """Pull `benchmark.streams.sim.mean_ms` from a result, or None if absent."""
+    streams = result.benchmark.get("streams") if result.benchmark else None
+    if not isinstance(streams, dict):
+        return None
+    sim = streams.get("sim")
+    if not isinstance(sim, dict):
+        return None
+    value = sim.get("mean_ms")
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
 
 
 def from_bucket(
@@ -89,11 +99,11 @@ def print_report(report: BatchReport) -> None:
         print("invalid breakdown:")
         for reason, count in sorted(report.invalid_reasons.items(), key=lambda kv: -kv[1]):
             print(f"  {count:>4}  {reason}")
-    if report.wall_time_mean_s is not None:
+    if report.sim_mean_ms_mean is not None:
         print(
-            f"engine_wall_s  mean={report.wall_time_mean_s:.3f}  "
-            f"median={report.wall_time_median_s:.3f}  "
-            f"p95={report.wall_time_p95_s:.3f}"
+            f"streams.sim.mean_ms  mean={report.sim_mean_ms_mean:.3f}  "
+            f"median={report.sim_mean_ms_median:.3f}  "
+            f"p95={report.sim_mean_ms_p95:.3f}"
         )
 
 

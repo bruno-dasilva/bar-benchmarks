@@ -70,6 +70,10 @@ ENV_VARS = {
 }
 
 BOOTSTRAP_SCRIPT = r"""set -eu
+# Idempotent: if the Batch agent re-executes this runnable on the same
+# VM, a half-populated pypkgs tree trips pip --target's cross-device
+# copytree path and fails with FileExistsError. Start clean.
+rm -rf /var/bar-run/pypkgs
 mkdir -p /var/bar-run/pypkgs
 # pydantic with deps (pulls pydantic_core); wheel without deps (skips
 # control-host-only deps like typer, google-cloud-*).

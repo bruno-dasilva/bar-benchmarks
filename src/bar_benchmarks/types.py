@@ -87,7 +87,12 @@ class BatchConfig(_Frozen):
 
 
 class BatchReport(BaseModel):
-    """What `stats` prints. Emitted by stats.aggregate."""
+    """What `stats` prints. Emitted by stats.aggregate.
+
+    The headline metric is the per-VM sim frame time
+    (`benchmark.streams.sim.mean_ms`); the aggregate takes mean / median
+    / p95 of that value across valid runs.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -96,6 +101,6 @@ class BatchReport(BaseModel):
     valid: int
     invalid: int
     invalid_reasons: dict[str, int] = Field(default_factory=dict)
-    wall_time_mean_s: float | None = None
-    wall_time_median_s: float | None = None
-    wall_time_p95_s: float | None = None
+    sim_mean_ms_mean: float | None = None
+    sim_mean_ms_median: float | None = None
+    sim_mean_ms_p95: float | None = None
