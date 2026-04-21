@@ -10,7 +10,47 @@ from google.cloud import batch_v1
 
 from bar_benchmarks.types import BatchConfig
 
-BOOT_DISK_GB = 50
+# Default min_cpu_platform per multi-generation machine family. Pinning
+# tightens reproducibility on families that span several CPU generations
+# (n1 = Sandy Bridge … Skylake, n2 = Cascade/Ice Lake, etc.). Single-
+# generation families (c3, c3d, c4, c4d, h3, n4, t2a, e2) are omitted —
+# Batch either ignores or rejects a pin there. Override via BatchConfig
+# .min_cpu_platform ("" to force-unset, non-empty string to pin).
+_DEFAULT_MIN_CPU_PLATFORM: dict[str, str] = {
+    "n1": "Intel Skylake",
+    "n2": "Intel Ice Lake",
+    "n2d": "AMD Milan",
+    "c2": "Intel Cascade Lake",
+    "c2d": "AMD Milan",
+    "m1": "Intel Skylake",
+    "m2": "Intel Cascade Lake",
+    "m3": "Intel Ice Lake",
+    "t2d": "AMD Milan",
+}
+
+
+def default_min_cpu_platform(machine_type: str) -> str | None:
+    """Return the canonical min_cpu_platform for a machine family, or
+    None for single-generation families where pinning is a no-op."""
+    family = machine_type.split("-", 1)[0]
+    return _DEFAULT_MIN_CPU_PLATFORM.get(family)
+
+
+def _resolve_min_cpu_platform(machine_type: str, override: str | None) -> str | None:
+    # Explicit "" means "force unset" (user opting out of the default).
+    if override == "":
+        return None
+    if override is not None:
+        return override
+    return default_min_cpu_platform(machine_type)
+
+
+# One task per VM claims the whole n*-standard-8 shape. If you ever
+# switch to a different shape, update both values in lockstep.
+TASK_CPU_MILLI = 8000
+TASK_MEMORY_MIB = 28 * 1024
+
+BOOT_DISK_GB = 30
 BOOT_DISK_TYPE = "pd-balanced"
 # Dedicated scratch disk for per-VM working sets (engine extract, BAR
 # data, runtime pypkgs). Batch's default root-fs scratch under /mnt/disks
@@ -144,6 +184,10 @@ def build_job(
         runnables=runnables,
         volumes=volumes,
         environment=batch_v1.Environment(variables=ENV_VARS),
+        compute_resource=batch_v1.ComputeResource(
+            cpu_milli=TASK_CPU_MILLI,
+            memory_mib=TASK_MEMORY_MIB,
+        ),
         max_run_duration={"seconds": cfg.max_run_duration_s},
         max_retry_count=0,
     )
@@ -158,8 +202,9 @@ def build_job(
         "machine_type": cfg.machine_type,
         "provisioning_model": batch_v1.AllocationPolicy.ProvisioningModel.SPOT,
     }
-    if cfg.min_cpu_platform:
-        policy_kwargs["min_cpu_platform"] = cfg.min_cpu_platform
+    min_cpu = _resolve_min_cpu_platform(cfg.machine_type, cfg.min_cpu_platform)
+    if min_cpu:
+        policy_kwargs["min_cpu_platform"] = min_cpu
 
     policy = batch_v1.AllocationPolicy.InstancePolicy(
         **policy_kwargs,

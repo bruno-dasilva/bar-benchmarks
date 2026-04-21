@@ -36,6 +36,9 @@ def test_job_shape_snapshot():
     spec = group.task_spec
     assert spec.max_retry_count == 0
     assert spec.max_run_duration.seconds == 1800
+    # One task per VM, claiming the whole 8-vCPU / 32-GB shape.
+    assert spec.compute_resource.cpu_milli == 8000
+    assert spec.compute_resource.memory_mib == 32 * 1024
 
     # Volumes: per-job artifacts + whole bucket + results — on the host
     # at /mnt/disks/* (the Batch convention), re-bind-mounted into the
@@ -86,7 +89,8 @@ def test_job_shape_snapshot():
     # Allocation policy.
     inst = job.allocation_policy.instances[0].policy
     assert inst.machine_type == "n1-standard-8"
-    assert inst.min_cpu_platform == ""  # unset by default
+    # n1 is a multi-gen family; table pins it to Skylake for reproducibility.
+    assert inst.min_cpu_platform == "Intel Skylake"
     assert inst.provisioning_model == batch_v1.AllocationPolicy.ProvisioningModel.SPOT
     assert inst.boot_disk.size_gb == 50
     assert inst.boot_disk.type_ == "pd-balanced"
@@ -121,7 +125,31 @@ def test_service_account_derives_from_project():
 
 
 def test_min_cpu_platform_override():
-    cfg = _cfg().model_copy(update={"min_cpu_platform": "Intel Skylake"})
+    cfg = _cfg().model_copy(update={"min_cpu_platform": "Intel Ice Lake"})
     job = batch_submitter.build_job(cfg, job_uid="job-xyz")
     inst = job.allocation_policy.instances[0].policy
-    assert inst.min_cpu_platform == "Intel Skylake"
+    assert inst.min_cpu_platform == "Intel Ice Lake"
+
+
+def test_min_cpu_platform_auto_for_single_gen_family():
+    # c3d is AMD Genoa single-gen — the table omits it, so no pin.
+    cfg = _cfg().model_copy(update={"machine_type": "c3d-standard-8"})
+    job = batch_submitter.build_job(cfg, job_uid="job-xyz")
+    inst = job.allocation_policy.instances[0].policy
+    assert inst.machine_type == "c3d-standard-8"
+    assert inst.min_cpu_platform == ""
+
+
+def test_min_cpu_platform_empty_override_forces_unset():
+    # Opt out of the table default for an n1 run.
+    cfg = _cfg().model_copy(update={"min_cpu_platform": ""})
+    job = batch_submitter.build_job(cfg, job_uid="job-xyz")
+    inst = job.allocation_policy.instances[0].policy
+    assert inst.min_cpu_platform == ""
+
+
+def test_default_min_cpu_platform_table():
+    assert batch_submitter.default_min_cpu_platform("n1-standard-8") == "Intel Skylake"
+    assert batch_submitter.default_min_cpu_platform("n2d-highmem-4") == "AMD Milan"
+    assert batch_submitter.default_min_cpu_platform("c3d-standard-8") is None
+    assert batch_submitter.default_min_cpu_platform("e2-medium") is None

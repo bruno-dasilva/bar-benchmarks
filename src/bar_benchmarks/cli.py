@@ -46,8 +46,8 @@ def run_cmd(
     machine_type: str = typer.Option(DEFAULT_MACHINE),
     min_cpu_platform: str | None = typer.Option(
         None,
-        help="Pin min CPU platform (e.g. 'Intel Skylake'). Leave unset for AMD "
-        "families like c3d, which reject Intel platform constraints.",
+        help="Pin min CPU platform. Unset = auto-derive from --machine-type "
+        "(e.g. n1 → 'Intel Skylake', c3d → no pin). Pass '' to force-unset.",
     ),
     max_run_duration: int = typer.Option(1800, min=60, help="Batch task timeout in seconds."),
     service_account: str | None = typer.Option(

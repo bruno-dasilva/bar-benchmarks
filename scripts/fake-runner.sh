@@ -323,6 +323,7 @@ docker run --rm \
   -e BAR_RUN_DIR=/var/bar-run \
   -e BAR_ENGINE_DIR=/opt/recoil \
   -e BAR_BENCHMARK_OUTPUT_PATH=benchmark-results.json \
+  -e PYTHONPATH=/var/bar-run/pypkgs \
   -e BATCH_JOB_UID="$job_uid" \
   -e BATCH_TASK_INDEX=0 \
   -v "$artifacts_dir:/mnt/artifacts" \

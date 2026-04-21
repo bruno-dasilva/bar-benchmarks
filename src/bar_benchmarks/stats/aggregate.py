@@ -7,7 +7,7 @@ import statistics
 from collections import Counter
 from collections.abc import Iterable
 
-from bar_benchmarks.types import BatchReport, Result
+from bar_benchmarks.types import BatchReport, PerVmSim, Result
 
 
 def _p95(values: list[float]) -> float | None:
@@ -37,8 +37,24 @@ def summarize(results: Iterable[Result], *, submitted: int, job_uid: str) -> Bat
     if missing > 0:
         reasons["infrastructure_failure"] += missing
 
-    sim_ms = [ms for r in valid if (ms := _sim_mean_ms(r)) is not None]
+    per_vm: list[PerVmSim] = []
+    for r in valid:
+        sim = _sim_stats(r)
+        if sim is None:
+            continue
+        per_vm.append(
+            PerVmSim(
+                vm_id=r.vm_id,
+                mean_ms=sim["mean_ms"],
+                spread_ms=sim.get("spread_ms"),
+                count=sim.get("count"),
+            )
+        )
+    per_vm.sort(key=lambda p: p.vm_id)
+
+    sim_ms = [p.mean_ms for p in per_vm]
     mean = statistics.fmean(sim_ms) if sim_ms else None
+    stddev = statistics.stdev(sim_ms) if len(sim_ms) >= 2 else None
     median = statistics.median(sim_ms) if sim_ms else None
     p95 = _p95(sim_ms)
 
@@ -48,24 +64,33 @@ def summarize(results: Iterable[Result], *, submitted: int, job_uid: str) -> Bat
         valid=len(valid),
         invalid=len(invalid) + missing,
         invalid_reasons=dict(reasons),
+        per_vm=per_vm,
         sim_mean_ms_mean=mean,
+        sim_mean_ms_stddev=stddev,
         sim_mean_ms_median=median,
         sim_mean_ms_p95=p95,
     )
 
 
-def _sim_mean_ms(result: Result) -> float | None:
-    """Pull `benchmark.streams.sim.mean_ms` from a result, or None if absent."""
+def _sim_stats(result: Result) -> dict[str, float | int] | None:
+    """Pull `benchmark.streams.sim` fields from a result, or None if absent."""
     streams = result.benchmark.get("streams") if result.benchmark else None
     if not isinstance(streams, dict):
         return None
     sim = streams.get("sim")
     if not isinstance(sim, dict):
         return None
-    value = sim.get("mean_ms")
-    if isinstance(value, (int, float)):
-        return float(value)
-    return None
+    mean = sim.get("mean_ms")
+    if not isinstance(mean, (int, float)):
+        return None
+    out: dict[str, float | int] = {"mean_ms": float(mean)}
+    spread = sim.get("spread_ms")
+    if isinstance(spread, (int, float)):
+        out["spread_ms"] = float(spread)
+    count = sim.get("count")
+    if isinstance(count, int):
+        out["count"] = count
+    return out
 
 
 def from_bucket(
@@ -99,11 +124,26 @@ def print_report(report: BatchReport) -> None:
         print("invalid breakdown:")
         for reason, count in sorted(report.invalid_reasons.items(), key=lambda kv: -kv[1]):
             print(f"  {count:>4}  {reason}")
+    if report.per_vm:
+        print("per-VM sim.mean_ms:")
+        vm_width = max(len(p.vm_id) for p in report.per_vm)
+        for p in report.per_vm:
+            spread = f"{p.spread_ms:.3f}ms" if p.spread_ms is not None else "?"
+            n = f"n={p.count}" if p.count is not None else ""
+            print(
+                f"  {p.vm_id:<{vm_width}}  mean={p.mean_ms:.3f}ms  spread={spread}"
+                + (f"  {n}" if n else "")
+            )
     if report.sim_mean_ms_mean is not None:
-        print(
-            f"streams.sim.mean_ms  mean={report.sim_mean_ms_mean:.3f}  "
-            f"median={report.sim_mean_ms_median:.3f}  "
-            f"p95={report.sim_mean_ms_p95:.3f}"
+        stddev = (
+            f"{report.sim_mean_ms_stddev:.3f}"
+            if report.sim_mean_ms_stddev is not None
+            else "n/a"
         )
-
-
+        print(
+            f"across VMs: mean={report.sim_mean_ms_mean:.3f}ms  "
+            f"stddev={stddev}ms  "
+            f"median={report.sim_mean_ms_median:.3f}ms  "
+            f"p95={report.sim_mean_ms_p95:.3f}ms  "
+            f"(n={len(report.per_vm)})"
+        )

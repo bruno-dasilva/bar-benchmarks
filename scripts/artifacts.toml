@@ -36,3 +36,7 @@ version = "Beyond All Reason test-29871-90f4bc1"
 [map."hellas-basin-v1.4"]
 source = "https://springfiles.springrts.com/files/maps/hellas_basin_v1.4.sd7"
 dest = "gs://bar-experiments-bench-artifacts/maps/hellas_basin_v1.4.sd7"
+
+[map."starwatcher-v1.0"]
+source = "https://springfiles.springrts.com/files/maps/starwatcher_1.0.sd7"
+dest = "gs://bar-experiments-bench-artifacts/maps/starwatcher_v1.0.sd7"
