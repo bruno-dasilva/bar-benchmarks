@@ -81,6 +81,7 @@ class BatchConfig(_Frozen):
     artifacts_bucket: str
     results_bucket: str
     machine_type: str
+    min_cpu_platform: str | None = None
     max_run_duration_s: int
     service_account: str | None = None
     wheel: Path | None = None

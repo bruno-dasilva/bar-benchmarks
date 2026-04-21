@@ -86,7 +86,7 @@ def test_job_shape_snapshot():
     # Allocation policy.
     inst = job.allocation_policy.instances[0].policy
     assert inst.machine_type == "n1-standard-8"
-    assert inst.min_cpu_platform == "Intel Skylake"
+    assert inst.min_cpu_platform == ""  # unset by default
     assert inst.provisioning_model == batch_v1.AllocationPolicy.ProvisioningModel.SPOT
     assert inst.boot_disk.size_gb == 50
     assert inst.boot_disk.type_ == "pd-balanced"
@@ -118,3 +118,10 @@ def test_service_account_derives_from_project():
         job.allocation_policy.service_account.email
         == "benchmark-runner@some-other-project.iam.gserviceaccount.com"
     )
+
+
+def test_min_cpu_platform_override():
+    cfg = _cfg().model_copy(update={"min_cpu_platform": "Intel Skylake"})
+    job = batch_submitter.build_job(cfg, job_uid="job-xyz")
+    inst = job.allocation_policy.instances[0].policy
+    assert inst.min_cpu_platform == "Intel Skylake"

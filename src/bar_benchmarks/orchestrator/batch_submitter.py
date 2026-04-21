@@ -10,7 +10,6 @@ from google.cloud import batch_v1
 
 from bar_benchmarks.types import BatchConfig
 
-MIN_CPU_PLATFORM = "Intel Skylake"
 BOOT_DISK_GB = 50
 BOOT_DISK_TYPE = "pd-balanced"
 # Dedicated scratch disk for per-VM working sets (engine extract, BAR
@@ -155,10 +154,15 @@ def build_job(
         task_spec=task_spec,
     )
 
+    policy_kwargs: dict = {
+        "machine_type": cfg.machine_type,
+        "provisioning_model": batch_v1.AllocationPolicy.ProvisioningModel.SPOT,
+    }
+    if cfg.min_cpu_platform:
+        policy_kwargs["min_cpu_platform"] = cfg.min_cpu_platform
+
     policy = batch_v1.AllocationPolicy.InstancePolicy(
-        machine_type=cfg.machine_type,
-        min_cpu_platform=MIN_CPU_PLATFORM,
-        provisioning_model=batch_v1.AllocationPolicy.ProvisioningModel.SPOT,
+        **policy_kwargs,
         boot_disk=batch_v1.AllocationPolicy.Disk(
             size_gb=BOOT_DISK_GB,
             type_=BOOT_DISK_TYPE,

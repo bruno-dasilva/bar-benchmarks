@@ -44,6 +44,11 @@ def run_cmd(
     artifacts_bucket: str = typer.Option(DEFAULT_ARTIFACTS_BUCKET),
     results_bucket: str = typer.Option(DEFAULT_RESULTS_BUCKET),
     machine_type: str = typer.Option(DEFAULT_MACHINE),
+    min_cpu_platform: str | None = typer.Option(
+        None,
+        help="Pin min CPU platform (e.g. 'Intel Skylake'). Leave unset for AMD "
+        "families like c3d, which reject Intel platform constraints.",
+    ),
     max_run_duration: int = typer.Option(1800, min=60, help="Batch task timeout in seconds."),
     service_account: str | None = typer.Option(
         None,
@@ -77,6 +82,7 @@ def run_cmd(
         artifacts_bucket=artifacts_bucket,
         results_bucket=results_bucket,
         machine_type=machine_type,
+        min_cpu_platform=min_cpu_platform,
         max_run_duration_s=max_run_duration,
         service_account=service_account,
         wheel=wheel,
