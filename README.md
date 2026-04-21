@@ -114,6 +114,43 @@ submitted task count, and prints an aggregate. Defaults target the
 `--region`, `--artifacts-bucket`, `--results-bucket`, `--machine-type`,
 and `--max-run-duration`.
 
+## Local iteration
+
+For iterating on the task-side pipeline (preflight + runner) without
+round-tripping through GCP Batch, two scripts in `scripts/` operate against
+a named-artifact catalog at [`scripts/artifacts.toml`](./scripts/artifacts.toml).
+Each catalog entry maps a human-readable name (e.g. `recoil-2025-04`,
+`bar-1.2.3`) to a `gs://` URI. Names decouple artifacts from any single
+job submission, so the same engine can be paired with different content
+versions and vice versa.
+
+Add an entry to the catalog by hand, then publish a local file under that
+name:
+
+```
+./scripts/fake-orchestrator.sh --engine recoil-2025-04 path/to/engine.tar.gz
+```
+
+Run the task pipeline against any combination of named artifacts. First run
+downloads them; subsequent runs reuse the on-disk cache under
+`.smoke/fake-runner/cache/`:
+
+```
+./scripts/fake-runner.sh \
+    --engine recoil-2025-04 \
+    --bar-content bar-1.2.3 \
+    --overlay benchmark-v1 \
+    --map tiny \
+    --startscript scenario-a
+```
+
+`fake-runner.sh` exports the same `BAR_*` env vars the production Batch
+VM gets, lays out `.smoke/fake-runner/{artifacts,data,run,engine,results}/`
+to mirror the on-VM directory layout, and invokes
+`uv run python -m bar_benchmarks.task.main`. The production orchestrator's
+bucket layout (`<job_uid>/...`) is unchanged; the catalog is a parallel
+addressing scheme used only by these dev-side scripts.
+
 ## Prerequisites
 
 One-time setup for the `bar-experiments` project (or whatever `--project`

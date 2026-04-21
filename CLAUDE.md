@@ -16,7 +16,10 @@ for environmental "poisons" that would contaminate results, uploads a
 `results.json` per VM, and aggregates basic stats over the valid runs. See
 [README.md](./README.md) for the user-facing description.
 
-The repo is currently greenfield: no code, just the design docs.
+The MVP harness (orchestrator, batch-submitter, task pipeline, collector,
+stats, CLI) is scaffolded under `src/bar_benchmarks/`. **Preflight and
+poison-monitor are stubs**; cloud smoke against a real GCP project is the
+next milestone.
 
 ## Engine execution
 
@@ -134,8 +137,6 @@ on one of these, ask the user rather than assuming:
 
 ## Directory layout
 
-Not scaffolded yet. Planned shape once code lands:
-
 ```
 pyproject.toml
 uv.lock
@@ -144,5 +145,32 @@ src/bar_benchmarks/
   task/           # preflight, runner, collector (Python entrypoints)
   poison/         # poison-monitor (background runnable)
   stats/          # aggregate batch results
+  paths.py        # BAR_* env-var resolution shared by task and orchestrator
+  cli.py          # `bar-bench` Typer entrypoint
 tests/
+scripts/          # dev-side iteration tooling — see § Local iteration tooling
 ```
+
+## Local iteration tooling
+
+`scripts/fake-runner.sh` and `scripts/fake-orchestrator.sh` let the task-side
+pipeline be exercised end-to-end on a dev box without round-tripping through
+GCP Batch. They operate against a **named-artifact catalog** at
+`scripts/artifacts.toml`: each entry maps a name (e.g. `recoil-2025-04`) to
+a `gs://` URI, and artifacts are picked by name on the runner side. Names
+decouple artifacts from any single job submission, so the same engine can
+be paired with different content versions and vice versa.
+
+This catalog scheme is **dev-side only** — it does not change the
+production orchestrator's bucket layout, which still uploads all five
+artifacts + wheel + manifest under `gs://<artifacts-bucket>/<job_uid>/`
+(see `src/bar_benchmarks/orchestrator/artifacts.py`). Don't conflate the
+two. If a future change needs to push the catalog scheme into the
+production orchestrator, treat it as a deliberate redesign, not a refactor.
+
+`fake-runner.sh` mirrors the on-VM environment: it sets the same `BAR_*`
+env vars `orchestrator/batch_submitter.py` sets in production, lays out
+the directory tree `paths.py` expects under `.smoke/fake-runner/`, and
+invokes `uv run python -m bar_benchmarks.task.main`. Downloaded artifacts
+are cached at `.smoke/fake-runner/cache/<bucket>/<key>` so re-runs skip
+the network.
