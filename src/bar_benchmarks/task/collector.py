@@ -8,9 +8,12 @@ is handled by the Job's `volumes[].remote_path`.
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+INFOLOG_FILENAME = "infolog.txt"
 
 from bar_benchmarks import paths
 from bar_benchmarks.types import (
@@ -102,6 +105,11 @@ def run() -> Result:
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / "results.json"
     out.write_text(json.dumps(result.model_dump(mode="json"), indent=2))
+
+    infolog = paths.data_dir() / INFOLOG_FILENAME
+    if infolog.is_file():
+        shutil.copy2(infolog, out_dir / INFOLOG_FILENAME)
+
     return result
 
 

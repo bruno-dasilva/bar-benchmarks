@@ -25,9 +25,21 @@
 # Overlay and startscript are not catalog-resolved — they live as files
 # under benchmarks/<scenario>/ and are selected by `--scenario NAME`.
 
-[engine.recoil-5c157c8]
-dest = "gs://bar-experiments-bench-artifacts/engine/recoil-5c157c8.tar.gz"
-commit = "5c157c8"
+[engine.recoil-5c157c8-perf-wins]
+dest = "gs://bar-experiments-bench-artifacts/engine/recoil-5c157c8-perf-wins.tar.gz"
+commit = "5c157c84bf11cfeadadade183f373b03cdb9fb7a"
+
+[engine.recoil-24808db-sse4]
+dest = "gs://bar-experiments-bench-artifacts/engine/recoil-24808db-sse4.tar.gz"
+commit = "24808db55e702c8ae432106c7d04838c1073e0aa"
+
+[engine.recoil-2f50bd5-matmul]
+dest = "gs://bar-experiments-bench-artifacts/engine/recoil-2f50bd5-matmul.tar.gz"
+commit = "2f50bd54ccb364360ca291ef28070c039784eb8c"
+
+[engine.recoil-892ff9e-master]
+dest = "gs://bar-experiments-bench-artifacts/engine/recoil-892ff9e-master.tar.gz"
+commit = "892ff9eaaa9ced4ec81d515483a70d56b5331420"
 
 [bar_content.bar-test-29871-90f4bc1]
 dest = "gs://bar-experiments-bench-artifacts/bar-content/bar-test-29871-90f4bc1.tar.gz"

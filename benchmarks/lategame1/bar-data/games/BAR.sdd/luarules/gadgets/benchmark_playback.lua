@@ -573,11 +573,11 @@ else
 
 	local function computeStats(samples)
 		if #samples == 0 then return nil end
-		-- Discard first 10% as warmup (matches BAR dbg_benchmark).
+		-- Discard first 1000 frames as warmup (fixed window, scenario-agnostic).
 		local sorted, count, total = {}, 0, 0
-		local warmup = math.floor(#samples * 0.1)
+		local WARMUP = 1000
 		for i, v in ipairs(samples) do
-			if i > warmup then
+			if i > WARMUP then
 				count = count + 1
 				sorted[count] = v
 				total = total + v
@@ -586,14 +586,19 @@ else
 		if count == 0 then return nil end
 		local mean = total / count
 		table.sort(sorted)
-		local spread = 0
-		for _, v in ipairs(sorted) do spread = spread + math.abs(v - mean) end
+		local spread, sqsum = 0, 0
+		for _, v in ipairs(sorted) do
+			local d = v - mean
+			spread = spread + math.abs(d)
+			sqsum = sqsum + d * d
+		end
 		spread = spread / count
+		local stddev = (count >= 2) and math.sqrt(sqsum / (count - 1)) or nil
 		local pct = {}
 		for _, p in ipairs(PERCENTILES) do
 			pct[p] = sorted[math.min(count, 1 + math.floor(p * 0.01 * count))]
 		end
-		return { count = count, total = total, mean = mean, spread = spread, pct = pct }
+		return { count = count, total = total, mean = mean, spread = spread, stddev = stddev, pct = pct }
 	end
 
 	local function collectStreamStats()
@@ -614,6 +619,7 @@ else
 					count       = ms.count,
 					mean_ms     = ms.mean,
 					spread_ms   = ms.spread,
+					stddev_ms   = ms.stddev,
 					total_s     = ms.total / 1000,
 					percentiles = pct,
 				}

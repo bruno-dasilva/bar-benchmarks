@@ -288,7 +288,7 @@ Sketch only; exact schema is TBD.
   "instance_type":  "...",
   "region":         "...",
   "artifact_names": {
-    "engine":        "recoil-5c157c8",
+    "engine":        "recoil-5c157c8-perf-wins",
     "bar_content":   "bar-test-29871-90f4bc1",
     "map":           "hellas-basin-v1.4"
   },

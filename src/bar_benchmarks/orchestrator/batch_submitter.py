@@ -228,7 +228,12 @@ def build_job(
         or f"benchmark-runner@{cfg.project}.iam.gserviceaccount.com"
     )
     allocation = batch_v1.AllocationPolicy(
-        instances=[batch_v1.AllocationPolicy.InstancePolicyOrTemplate(policy=policy)],
+        instances=[
+            batch_v1.AllocationPolicy.InstancePolicyOrTemplate(
+                policy=policy,
+                install_ops_agent=True,
+            )
+        ],
         service_account=batch_v1.ServiceAccount(email=service_account_email),
     )
 

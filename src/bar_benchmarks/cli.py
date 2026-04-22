@@ -30,6 +30,12 @@ def run_cmd(
         ...,
         help="Folder name under --benchmarks-dir that provides startscript.txt + bar-data/.",
     ),
+    description: str | None = typer.Option(
+        None,
+        "--description",
+        "-d",
+        help="One-line description of this run (shown in the final report).",
+    ),
     catalog: Path = typer.Option(
         DEFAULT_CATALOG, exists=True, dir_okay=False, readable=True,
         help="Path to the artifact catalog (scripts/artifacts.toml).",
@@ -75,6 +81,7 @@ def run_cmd(
         bar_content_name=bar_content,
         map_name=map_,
         scenario_dir=scenario_dir,
+        run_description=description,
         catalog_path=catalog,
         count=count,
         project=project,

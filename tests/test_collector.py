@@ -57,6 +57,26 @@ def test_collector_poisoned_overrides_engine_crash(task_env, tiny_artifacts):
     assert result.invalid_reason == "poisoned"
 
 
+def test_collector_uploads_infolog_when_present(task_env, tiny_artifacts):
+    _write_inputs(task_env)
+    (task_env["data"] / "infolog.txt").write_text("engine log contents\n")
+
+    collector.run()
+
+    uploaded = task_env["results"] / "0" / "infolog.txt"
+    assert uploaded.is_file()
+    assert uploaded.read_text() == "engine log contents\n"
+
+
+def test_collector_skips_infolog_when_absent(task_env, tiny_artifacts):
+    _write_inputs(task_env)
+    # No infolog written (e.g., engine never started).
+
+    collector.run()
+
+    assert not (task_env["results"] / "0" / "infolog.txt").exists()
+
+
 def test_collector_missing_verdict(task_env, tiny_artifacts):
     # Simulate: runner never wrote verdict.json (e.g., preflight skipped it).
     (task_env["run"] / "preflight.json").write_text(

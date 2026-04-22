@@ -191,7 +191,7 @@ Using the `benchmarks/lategame1/` scenario, RecoilEngine commit
 # 1. Build the engine and bar-content tarballs locally
 scripts/build-engine.sh \
     --commit 5c157c84bf11cfeadadade183f373b03cdb9fb7a \
-    --output /tmp/recoil-5c157c8.tar.gz
+    --output /tmp/recoil-5c157c8-perf-wins.tar.gz
 
 scripts/build-bar-content.sh \
     --version "Beyond All Reason test-29871-90f4bc1" \
@@ -199,7 +199,7 @@ scripts/build-bar-content.sh \
 
 # 2. Register catalog entries in scripts/artifacts.toml:
 #   [engine]
-#   recoil-5c157c8 = "gs://bar-experiments-bench-artifacts/engine/recoil-5c157c8.tar.gz"
+#   recoil-5c157c8-perf-wins = "gs://bar-experiments-bench-artifacts/engine/recoil-5c157c8-perf-wins.tar.gz"
 #   [bar_content]
 #   bar-test-29871-90f4bc1 = "gs://bar-experiments-bench-artifacts/bar-content/bar-test-29871-90f4bc1.tar.gz"
 #   [map."hellas-basin-v1.4"]
@@ -207,13 +207,13 @@ scripts/build-bar-content.sh \
 #   dest   = "gs://bar-experiments-bench-artifacts/maps/hellas_basin_v1.4.sd7"
 
 # 3. Publish to the artifacts bucket
-scripts/fake-orchestrator.sh --engine      recoil-5c157c8         /tmp/recoil-5c157c8.tar.gz
+scripts/fake-orchestrator.sh --engine      recoil-5c157c8-perf-wins /tmp/recoil-5c157c8-perf-wins.tar.gz
 scripts/fake-orchestrator.sh --bar-content bar-test-29871-90f4bc1 /tmp/bar-test-29871-90f4bc1.tar.gz
 scripts/fake-orchestrator.sh --map         hellas-basin-v1.4      # mirrors from springfiles
 
 # 4. Run the task pipeline
 scripts/fake-runner.sh \
-    --engine      recoil-5c157c8 \
+    --engine      recoil-5c157c8-perf-wins \
     --bar-content bar-test-29871-90f4bc1 \
     --map         hellas-basin-v1.4 \
     --scenario    lategame1

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime
+
+import pytest
 
 from bar_benchmarks.stats import aggregate
 from bar_benchmarks.types import (
@@ -18,6 +21,7 @@ def _r(
     reason: str | None = None,
     vm_id: str = "ix",
     spread_ms: float | None = None,
+    stddev_ms: float | None = None,
     count: int | None = None,
 ) -> Result:
     benchmark: dict = {}
@@ -25,6 +29,8 @@ def _r(
         sim: dict = {"mean_ms": sim_mean_ms}
         if spread_ms is not None:
             sim["spread_ms"] = spread_ms
+        if stddev_ms is not None:
+            sim["stddev_ms"] = stddev_ms
         if count is not None:
             sim["count"] = count
         benchmark = {"streams": {"sim": sim}}
@@ -54,9 +60,9 @@ def _r(
 
 def test_summarize_counts_and_percentiles():
     results = [
-        _r(10.0, vm_id="0", spread_ms=1.0, count=100),
-        _r(20.0, vm_id="1", spread_ms=2.0, count=100),
-        _r(30.0, vm_id="2", spread_ms=3.0, count=100),
+        _r(10.0, vm_id="0", spread_ms=1.0, stddev_ms=3.0, count=100),
+        _r(20.0, vm_id="1", spread_ms=2.0, stddev_ms=4.0, count=100),
+        _r(30.0, vm_id="2", spread_ms=3.0, stddev_ms=5.0, count=100),
         _r(None, valid=False, reason="engine_crash"),
     ]
     report = aggregate.summarize(results, submitted=5, job_uid="job-1")
@@ -66,12 +72,15 @@ def test_summarize_counts_and_percentiles():
     assert report.invalid == 2
     assert report.invalid_reasons == {"engine_crash": 1, "infrastructure_failure": 1}
     assert report.sim_mean_ms_mean == 20.0
-    assert report.sim_mean_ms_stddev == 10.0  # stdev of [10, 20, 30]
+    # Pooled across 300 sim frames: grand mean 20, within-SS = 99*(9+16+25)=4950,
+    # between-SS = 100*100 + 0 + 100*100 = 20000, pooled = sqrt(24950/299).
+    assert report.sim_mean_ms_stddev == pytest.approx(math.sqrt(24950 / 299))
     assert report.sim_mean_ms_median == 20.0
     assert report.sim_mean_ms_p95 == 29.0  # linear interp on 3 points
     assert [p.vm_id for p in report.per_vm] == ["0", "1", "2"]
     assert [p.mean_ms for p in report.per_vm] == [10.0, 20.0, 30.0]
     assert [p.spread_ms for p in report.per_vm] == [1.0, 2.0, 3.0]
+    assert [p.stddev_ms for p in report.per_vm] == [3.0, 4.0, 5.0]
     assert [p.count for p in report.per_vm] == [100, 100, 100]
 
 
@@ -86,11 +95,34 @@ def test_summarize_empty():
     assert report.sim_mean_ms_p95 is None
 
 
-def test_summarize_single_vm_has_no_stddev():
-    report = aggregate.summarize([_r(20.0, vm_id="0")], submitted=1, job_uid="job-4")
+def test_summarize_carries_run_description():
+    report = aggregate.summarize(
+        [_r(20.0, vm_id="0")],
+        submitted=1,
+        job_uid="job-5",
+        run_description="Testing n2-highcpu-16 vs n1-standard-8 on lategame1.",
+    )
+    assert report.run_description == "Testing n2-highcpu-16 vs n1-standard-8 on lategame1."
+
+
+def test_summarize_single_vm_pools_to_that_runs_stddev():
+    # One run → pooled stddev is just that run's own σ.
+    report = aggregate.summarize(
+        [_r(20.0, vm_id="0", stddev_ms=4.2, count=100)],
+        submitted=1,
+        job_uid="job-4",
+    )
+    assert report.sim_mean_ms_mean == 20.0
+    assert report.sim_mean_ms_stddev == pytest.approx(4.2)
+    assert len(report.per_vm) == 1
+
+
+def test_summarize_stddev_is_none_when_runs_missing_stddev():
+    # Multiple valid runs but none carry stddev_ms → pooling impossible.
+    results = [_r(10.0, vm_id="0", count=100), _r(30.0, vm_id="1", count=100)]
+    report = aggregate.summarize(results, submitted=2, job_uid="job-6")
     assert report.sim_mean_ms_mean == 20.0
     assert report.sim_mean_ms_stddev is None
-    assert len(report.per_vm) == 1
 
 
 def test_summarize_skips_results_missing_sim_metric():

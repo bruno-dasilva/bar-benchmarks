@@ -1286,11 +1286,11 @@ else	-- UNSYNCED
 					percentiles = {},
 
 				}  --mystats
-				-- Discard first 10%
+				-- Discard first 1000 frames as warmup
 				local ct = {} -- cleantable
-				local oldtotal = #t
+				local WARMUP = 1000
 				for i,v in ipairs(t) do
-					if i > (oldtotal * 0.1) then
+					if i > WARMUP then
 						ms.count = ms.count + 1
 						ct[ms.count] = v
 						ms.total = ms.total + v
@@ -1300,10 +1300,14 @@ else	-- UNSYNCED
 				ms.mean = ms.total/ms.count
 				table.sort(ct)
 
+				local sqsum = 0
 				for i, v in ipairs(ct) do
-					ms.spread = ms.spread + math.abs( v - ms.mean)
+					local d = v - ms.mean
+					ms.spread = ms.spread + math.abs(d)
+					sqsum = sqsum + d * d
 				end
 				ms.spread = ms.spread/ms.count
+				ms.stddev = (ms.count >= 2) and math.sqrt(sqsum / (ms.count - 1)) or nil
 
 				for _,i in ipairs({0,1,2,5,10,20,35,50,65,80,90,95,98,99,100}) do
 					ms.percentiles[i] = ct[math.min(#ct, 1 + math.floor(i*0.01 * #ct))]
@@ -1359,6 +1363,7 @@ else	-- UNSYNCED
 						count       = ms.count,
 						mean_ms     = ms.mean,
 						spread_ms   = ms.spread,
+						stddev_ms   = ms.stddev,
 						total_s     = ms.total / 1000,
 						percentiles = pct,
 					}

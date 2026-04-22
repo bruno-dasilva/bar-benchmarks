@@ -36,9 +36,10 @@ def test_job_shape_snapshot():
     spec = group.task_spec
     assert spec.max_retry_count == 0
     assert spec.max_run_duration.seconds == 1800
-    # One task per VM, claiming the whole 8-vCPU / 32-GB shape.
+    # One task per VM, claiming the 8-vCPU shape with headroom left on
+    # the 32-GB memory for Batch overhead.
     assert spec.compute_resource.cpu_milli == 8000
-    assert spec.compute_resource.memory_mib == 32 * 1024
+    assert spec.compute_resource.memory_mib == 28 * 1024
 
     # Volumes: per-job artifacts + whole bucket + results — on the host
     # at /mnt/disks/* (the Batch convention), re-bind-mounted into the
@@ -87,12 +88,13 @@ def test_job_shape_snapshot():
     assert env["PYTHONPATH"] == "/var/bar-run/pypkgs"
 
     # Allocation policy.
+    assert job.allocation_policy.instances[0].install_ops_agent is True
     inst = job.allocation_policy.instances[0].policy
     assert inst.machine_type == "n1-standard-8"
     # n1 is a multi-gen family; table pins it to Skylake for reproducibility.
     assert inst.min_cpu_platform == "Intel Skylake"
     assert inst.provisioning_model == batch_v1.AllocationPolicy.ProvisioningModel.SPOT
-    assert inst.boot_disk.size_gb == 50
+    assert inst.boot_disk.size_gb == 30
     assert inst.boot_disk.type_ == "pd-balanced"
     # Dedicated 10 GB scratch disk mounted at /mnt/disks/scratch; all
     # per-VM scratch paths (bar-data, bar-run, engine extract) live here.

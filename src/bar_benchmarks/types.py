@@ -74,6 +74,7 @@ class BatchConfig(_Frozen):
     bar_content_name: str
     map_name: str
     scenario_dir: Path
+    run_description: str | None = None
     catalog_path: Path
     count: int
     project: str
@@ -90,14 +91,15 @@ class BatchConfig(_Frozen):
 class PerVmSim(_Frozen):
     """Per-VM sim frame-time stats pulled from `benchmark.streams.sim`.
 
-    `spread_ms` is mean-absolute-deviation as produced by the overlay Lua
-    (not stddev) — a per-VM spread is derived from one sample stream, so
-    MAD is what the widget reports.
+    `spread_ms` is mean-absolute-deviation as produced by the overlay Lua;
+    `stddev_ms` is the per-run sample standard deviation (Bessel-corrected)
+    used to pool a batch-level stddev across runs.
     """
 
     vm_id: str
     mean_ms: float
     spread_ms: float | None = None
+    stddev_ms: float | None = None
     count: int | None = None
 
 
@@ -106,13 +108,16 @@ class BatchReport(BaseModel):
 
     The headline metric is the per-VM sim frame time
     (`benchmark.streams.sim.mean_ms`). Per-VM rows carry each VM's own
-    mean / spread; the aggregate takes mean / stddev / median / p95 of
-    the per-VM means across valid runs.
+    mean / spread / stddev; the aggregate takes mean / median / p95 of
+    the per-VM means, and `sim_mean_ms_stddev` is the pooled stddev of
+    sim frame times across all valid runs (reconstructed from each
+    run's `count`, `mean_ms`, `stddev_ms`).
     """
 
     model_config = ConfigDict(extra="forbid")
 
     job_uid: str
+    run_description: str | None = None
     submitted: int
     valid: int
     invalid: int

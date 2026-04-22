@@ -208,7 +208,7 @@ Bucket layout the orchestrator writes:
 
 ```
 gs://<artifacts-bucket>/
-    engine/<name>.tar.gz                (shared; e.g. recoil-5c157c8)
+    engine/<name>.tar.gz                (shared; e.g. recoil-5c157c8-perf-wins)
     bar-content/<name>.tar.gz           (shared; e.g. bar-test-29871-90f4bc1)
     maps/<map_filename>                 (shared; basename from catalog dest URI)
     <job_uid>/
@@ -251,7 +251,7 @@ is `benchmarks/lategame1/`):
 
 ```
 scripts/fake-runner.sh \
-    --engine recoil-5c157c8 \
+    --engine recoil-5c157c8-perf-wins \
     --bar-content bar-test-29871-90f4bc1 \
     --map hellas-basin-v1.4 \
     --scenario lategame1

@@ -7,9 +7,16 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
-from bar_benchmarks.orchestrator import artifacts, batch_submitter, poller, reconcile
+from bar_benchmarks.orchestrator import (
+    artifacts,
+    batch_submitter,
+    poller,
+    reconcile,
+    run_info,
+)
 from bar_benchmarks.orchestrator.catalog import Catalog
 from bar_benchmarks.stats import aggregate
 from bar_benchmarks.types import BatchConfig, BatchReport
@@ -66,6 +73,19 @@ def run(cfg: BatchConfig) -> BatchReport:
         artifacts_bucket, cfg, plan, manifest, cat=cat, project=cfg.project
     )
 
+    submitted_at = datetime.now(UTC)
+    run_info.upload(
+        cfg.results_bucket,
+        job_uid,
+        run_info.run_info_bytes(cfg, job_uid, submitted_at),
+        project=cfg.project,
+    )
+    results_bucket_name = cfg.results_bucket.removeprefix("gs://")
+    print(
+        f"[run] wrote run.json → gs://{results_bucket_name}/{job_uid}/run.json",
+        file=sys.stderr,
+    )
+
     print(f"[run] submitting Batch Job ({cfg.count} tasks)", file=sys.stderr)
     job = batch_submitter.submit(cfg, job_id=job_uid)
     print(f"[run] submitted: {job.name}", file=sys.stderr)
@@ -84,7 +104,11 @@ def run(cfg: BatchConfig) -> BatchReport:
         )
 
     report = aggregate.from_bucket(
-        cfg.results_bucket, job_uid, submitted=cfg.count, project=cfg.project
+        cfg.results_bucket,
+        job_uid,
+        submitted=cfg.count,
+        project=cfg.project,
+        run_description=cfg.run_description,
     )
     aggregate.print_report(report)
     return report

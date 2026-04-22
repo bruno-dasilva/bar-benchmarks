@@ -25,7 +25,13 @@ def _p95(values: list[float]) -> float | None:
     return s[lo] + (s[hi] - s[lo]) * frac
 
 
-def summarize(results: Iterable[Result], *, submitted: int, job_uid: str) -> BatchReport:
+def summarize(
+    results: Iterable[Result],
+    *,
+    submitted: int,
+    job_uid: str,
+    run_description: str | None = None,
+) -> BatchReport:
     results = list(results)
     valid = [r for r in results if r.valid]
     invalid = [r for r in results if not r.valid]
@@ -47,6 +53,7 @@ def summarize(results: Iterable[Result], *, submitted: int, job_uid: str) -> Bat
                 vm_id=r.vm_id,
                 mean_ms=sim["mean_ms"],
                 spread_ms=sim.get("spread_ms"),
+                stddev_ms=sim.get("stddev_ms"),
                 count=sim.get("count"),
             )
         )
@@ -54,12 +61,13 @@ def summarize(results: Iterable[Result], *, submitted: int, job_uid: str) -> Bat
 
     sim_ms = [p.mean_ms for p in per_vm]
     mean = statistics.fmean(sim_ms) if sim_ms else None
-    stddev = statistics.stdev(sim_ms) if len(sim_ms) >= 2 else None
+    stddev = _pooled_stddev(per_vm)
     median = statistics.median(sim_ms) if sim_ms else None
     p95 = _p95(sim_ms)
 
     return BatchReport(
         job_uid=job_uid,
+        run_description=run_description,
         submitted=submitted,
         valid=len(valid),
         invalid=len(invalid) + missing,
@@ -87,10 +95,38 @@ def _sim_stats(result: Result) -> dict[str, float | int] | None:
     spread = sim.get("spread_ms")
     if isinstance(spread, (int, float)):
         out["spread_ms"] = float(spread)
+    stddev = sim.get("stddev_ms")
+    if isinstance(stddev, (int, float)):
+        out["stddev_ms"] = float(stddev)
     count = sim.get("count")
     if isinstance(count, int):
         out["count"] = count
     return out
+
+
+def _pooled_stddev(per_vm: list[PerVmSim]) -> float | None:
+    """Pooled sample stddev of sim frame times across runs.
+
+    Treats all frames from all runs as one big sample, reconstructed from
+    each run's (count, mean_ms, stddev_ms). Returns None if any run is
+    missing count or stddev_ms, or if the combined frame count is < 2.
+    """
+    if not per_vm:
+        return None
+    total_n = 0
+    for p in per_vm:
+        if p.count is None or p.stddev_ms is None:
+            return None
+        total_n += p.count
+    if total_n < 2:
+        return None
+    grand_mean = sum(p.count * p.mean_ms for p in per_vm) / total_n  # type: ignore[operator]
+    ss = 0.0
+    for p in per_vm:
+        n = p.count  # type: ignore[assignment]
+        sigma = p.stddev_ms  # type: ignore[assignment]
+        ss += (n - 1) * sigma * sigma + n * (p.mean_ms - grand_mean) ** 2
+    return math.sqrt(ss / (total_n - 1))
 
 
 def from_bucket(
@@ -100,6 +136,7 @@ def from_bucket(
     submitted: int,
     project: str | None = None,
     client=None,
+    run_description: str | None = None,
 ) -> BatchReport:
     """Pull every results.json under `<results-bucket>/<job_uid>/` and summarize."""
     if client is None:
@@ -114,11 +151,18 @@ def from_bucket(
             continue
         body = blob.download_as_bytes()
         results.append(Result.model_validate_json(body))
-    return summarize(results, submitted=submitted, job_uid=job_uid)
+    return summarize(
+        results,
+        submitted=submitted,
+        job_uid=job_uid,
+        run_description=run_description,
+    )
 
 
 def print_report(report: BatchReport) -> None:
     print(f"\n=== Batch {report.job_uid} ===")
+    if report.run_description:
+        print(report.run_description)
     print(f"submitted: {report.submitted}  valid: {report.valid}  invalid: {report.invalid}")
     if report.invalid_reasons:
         print("invalid breakdown:")
@@ -129,9 +173,10 @@ def print_report(report: BatchReport) -> None:
         vm_width = max(len(p.vm_id) for p in report.per_vm)
         for p in report.per_vm:
             spread = f"{p.spread_ms:.3f}ms" if p.spread_ms is not None else "?"
+            sd = f"  stddev={p.stddev_ms:.3f}ms" if p.stddev_ms is not None else ""
             n = f"n={p.count}" if p.count is not None else ""
             print(
-                f"  {p.vm_id:<{vm_width}}  mean={p.mean_ms:.3f}ms  spread={spread}"
+                f"  {p.vm_id:<{vm_width}}  mean={p.mean_ms:.3f}ms  spread={spread}{sd}"
                 + (f"  {n}" if n else "")
             )
     if report.sim_mean_ms_mean is not None:
@@ -140,10 +185,12 @@ def print_report(report: BatchReport) -> None:
             if report.sim_mean_ms_stddev is not None
             else "n/a"
         )
+        total_frames = sum(p.count for p in report.per_vm if p.count is not None)
+        frames_hint = f"  frames= {total_frames}" if total_frames else ""
         print(
-            f"across VMs: mean={report.sim_mean_ms_mean:.3f}ms  "
-            f"stddev={stddev}ms  "
-            f"median={report.sim_mean_ms_median:.3f}ms  "
-            f"p95={report.sim_mean_ms_p95:.3f}ms  "
-            f"(n={len(report.per_vm)})"
+            f"across VMs: mean= {report.sim_mean_ms_mean:.3f}ms  "
+            f"stddev= {stddev}ms  "
+            f"median= {report.sim_mean_ms_median:.3f}ms  "
+            f"p95= {report.sim_mean_ms_p95:.3f}ms  "
+            f"(vms= {len(report.per_vm)}{frames_hint})"
         )
