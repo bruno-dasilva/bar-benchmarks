@@ -229,9 +229,10 @@ The task VM gets two FUSE mounts:
 `bar_benchmarks` wheel into the per-job subtree, stages the artifacts
 into the same bucket-layout tree, then runs
 `batch_submitter.BOOTSTRAP_SCRIPT` (extracted verbatim from the Python
-module) followed by `python3 -m bar_benchmarks.task.main` inside a
-`linux/amd64` `debian:12-slim` Docker container
-(`scripts/fake-runner.Dockerfile`). Mounts place
+module) followed by `python3 -m bar_benchmarks.task.main` inside the
+same Artifact Registry image the real Batch Job pulls
+(`us-central1-docker.pkg.dev/bar-experiments/benchmarks/batch-runtime:<tag>`,
+built from `scripts/batch-runtime.Dockerfile`). Mounts place
 `$workdir/{bucket,bucket/fake-runner-local,results,data,run,engine}`
 at the canonical Batch paths (`/mnt/artifacts-bucket`,
 `/mnt/artifacts`, `/mnt/results`, `/var/bar-data`, `/var/bar-run`,
@@ -241,10 +242,12 @@ emulation") so the amd64 `spring-headless` binary can execute.
 Downloaded artifacts are cached at
 `.smoke/fake-runner/cache/<bucket>/<key>` so re-runs skip the network.
 
-If the Dockerfile's package set ever needs to grow (e.g. spring-headless
-complains about a missing lib), update **both** the Dockerfile and
-`batch_submitter.BOOTSTRAP_SCRIPT` in the same commit — fidelity is the
-whole point.
+When the runtime image needs to change (e.g. spring-headless surfaces
+a missing lib, or a new Python dep should be pre-baked): edit
+`scripts/batch-runtime.Dockerfile`, run `scripts/build-batch-runtime.sh`
+to push a new tag to AR, and bump the tag in **both**
+`batch_submitter.CONTAINER_IMAGE` and `fake-runner.sh:IMAGE_TAG` in
+the same commit — the two consumers must stay in lockstep.
 
 Example invocation (engine/bar-content/map are catalog names; scenario
 is `benchmarks/lategame1/`):

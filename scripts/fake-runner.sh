@@ -2,8 +2,8 @@
 # Run the task-side pipeline (preflight + runner from src/bar_benchmarks/task/)
 # locally in a linux/amd64 Docker container that *impersonates* a GCP Batch
 # Task VM. The container uses the same canonical paths (/mnt/artifacts,
-# /mnt/results, /var/bar-data, /var/bar-run, /opt/recoil), the same BAR_*
-# env vars, and the same bootstrap (apt + pip install wheel) that
+# /mnt/results, /var/bar-scratch/tasks/$BATCH_TASK_INDEX/*), the same BAR_*
+# env vars, and the same bootstrap (pip install wheel) that
 # orchestrator/batch_submitter.py runs on real Batch Tasks — so a passing
 # fake-runner implies the Batch path will work. Amd64 emulation is a side
 # benefit: the Linux amd64 spring-headless binary can actually execute on
@@ -17,7 +17,10 @@ set -euo pipefail
 
 DEFAULT_CATALOG="scripts/artifacts.toml"
 DEFAULT_WORKDIR=".smoke/fake-runner"
-IMAGE_TAG="bar-benchmarks/fake-runner:dev"
+# Must match CONTAINER_IMAGE in
+# src/bar_benchmarks/orchestrator/batch_submitter.py. Pulling the same
+# AR image the real Batch Job uses is what makes fake-runner faithful.
+IMAGE_TAG="us-central1-docker.pkg.dev/bar-experiments/benchmarks/batch-runtime:2026-04-22"
 
 usage() {
   cat >&2 <<'EOF'
@@ -38,11 +41,12 @@ under games/BAR.sdd/ override the base content; anything else lands in
 
 Downloaded artifacts are cached under <workdir>/cache/... so subsequent
 runs skip the network. The runner's working tree
-(<workdir>/{bucket,data,run,engine,results}) is wiped at the start of
-each run to give the runner a fresh-VM look. <workdir>/bucket mirrors
-the real artifacts-bucket layout: content-addressed engine/bar-content/
-map at the root and per-job files (overlay, startscript, wheel,
-manifest) under fake-runner-local/.
+(<workdir>/{bucket,scratch,results}) is wiped at the start of each run
+to give the runner a fresh-VM look. <workdir>/bucket mirrors the real
+artifacts-bucket layout: content-addressed engine/bar-content/map at
+the root and per-job files (overlay, startscript, wheel, manifest)
+under fake-runner-local/. <workdir>/scratch stands in for the attached
+scratch disk on a Batch VM; per-task trees live under scratch/tasks/<idx>/.
 
 Requires Docker. On Apple Silicon, enable Rosetta in Docker Desktop so
 the amd64 spring-headless binary can run under emulation.
@@ -132,9 +136,12 @@ cache_dir="$workdir/cache"
 bucket_dir="$workdir/bucket"
 job_uid="fake-runner-local"
 artifacts_dir="$bucket_dir/$job_uid"
-data_dir="$workdir/data"
-run_dir="$workdir/run"
-engine_dir="$workdir/engine"
+# Single scratch tree mounted at /var/bar-scratch in the container;
+# batch_submitter's PER_TASK_ENV_WRAPPER points every task's BAR_*_DIR
+# + PYTHONPATH at tasks/$BATCH_TASK_INDEX/* under here. fake-runner
+# always impersonates task 0.
+scratch_dir="$workdir/scratch"
+task_scratch="$scratch_dir/tasks/0"
 results_dir="$workdir/results"
 
 # ---- resolve artifact URIs from the catalog ----
@@ -195,8 +202,10 @@ map_local="$(fetch "$map_uri")"                   || exit 1
 # ---- wipe + re-stage runtime dirs ----
 
 echo "[fake-runner] staging working tree at $workdir" >&2
-rm -rf "$bucket_dir" "$data_dir" "$run_dir" "$engine_dir" "$results_dir"
-mkdir -p "$artifacts_dir" "$data_dir" "$run_dir" "$engine_dir" "$results_dir"
+rm -rf "$bucket_dir" "$scratch_dir" "$results_dir"
+mkdir -p "$artifacts_dir" "$results_dir" \
+         "$task_scratch/bar-data" "$task_scratch/bar-run" \
+         "$task_scratch/engine" "$task_scratch/pypkgs"
 
 # Stage the three shared artifacts under the same bucket keys the
 # production orchestrator writes — i.e. the path portion of each
@@ -287,7 +296,10 @@ EOF
 # to disk (rather than passing via `sh -c`) preserves multi-line semantics
 # and `set -eu` cleanly. ----
 
-bootstrap_path="$run_dir/bootstrap.sh"
+# Shared across tasks (index-aware via $BATCH_TASK_INDEX inside); lives
+# at scratch root so it's visible at /var/bar-scratch/bootstrap.sh in
+# the container.
+bootstrap_path="$scratch_dir/bootstrap.sh"
 (cd "$repo_root" && uv run --quiet python -c "
 import sys
 from bar_benchmarks.orchestrator.batch_submitter import BOOTSTRAP_SCRIPT
@@ -295,53 +307,61 @@ sys.stdout.write(BOOTSTRAP_SCRIPT)
 " >"$bootstrap_path")
 chmod +x "$bootstrap_path"
 
-# ---- docker image: build on first run, rebuild on --rebuild-image. Layer
-# caching makes the steady-state `docker build` a fast no-op. ----
+# ---- docker image: pull from Artifact Registry (same image the real
+# Batch Job uses). Docker's local layer cache makes repeated pulls a
+# no-op once the tag is present; --rebuild-image forces a re-pull to
+# pick up a retagged image. ----
 
-dockerfile="$script_dir/fake-runner.Dockerfile"
-build_args=()
-if [[ $rebuild_image -eq 1 ]]; then
-  build_args+=(--no-cache)
-  echo "[fake-runner] --rebuild-image: forcing docker build --no-cache" >&2
+gcloud auth configure-docker us-central1-docker.pkg.dev --quiet >&2
+
+if [[ $rebuild_image -eq 1 ]] || ! docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+  echo "[fake-runner] docker pull $IMAGE_TAG" >&2
+  docker pull --platform=linux/amd64 "$IMAGE_TAG" >&2
 fi
-
-echo "[fake-runner] docker build -t $IMAGE_TAG" >&2
-docker build ${build_args[@]+"${build_args[@]}"} -t "$IMAGE_TAG" -f "$dockerfile" "$script_dir" >&2
 
 # ---- run the task pipeline in the container. Mounts place each host
 # scratch dir at the canonical Batch path so the container's view matches
 # a real Task's view. Env vars mirror batch_submitter.ENV_VARS. ----
 
 echo "[fake-runner] docker run (impersonating a Batch Task VM)" >&2
+# The inline shell below mirrors batch_submitter.PER_TASK_ENV_WRAPPER:
+# compute the per-task scratch root from BATCH_TASK_INDEX, export the
+# BAR_*_DIR + PYTHONPATH vars, then run bootstrap + task entrypoint.
+# Duplicated rather than extracted to a shared file to keep fake-runner
+# self-contained; if the wrapper changes, update both.
 set +e
 docker run --rm \
   --platform=linux/amd64 \
   -e BAR_ARTIFACTS_DIR=/mnt/artifacts \
   -e BAR_ARTIFACTS_BUCKET_DIR=/mnt/artifacts-bucket \
   -e BAR_RESULTS_DIR=/mnt/results \
-  -e BAR_DATA_DIR=/var/bar-data \
-  -e BAR_RUN_DIR=/var/bar-run \
-  -e BAR_ENGINE_DIR=/opt/recoil \
   -e BAR_BENCHMARK_OUTPUT_PATH=benchmark-results.json \
-  -e PYTHONPATH=/var/bar-run/pypkgs \
   -e BATCH_JOB_UID="$job_uid" \
   -e BATCH_TASK_INDEX=0 \
   -v "$artifacts_dir:/mnt/artifacts" \
   -v "$bucket_dir:/mnt/artifacts-bucket" \
   -v "$results_dir:/mnt/results" \
-  -v "$data_dir:/var/bar-data" \
-  -v "$run_dir:/var/bar-run" \
-  -v "$engine_dir:/opt/recoil" \
+  -v "$scratch_dir:/var/bar-scratch" \
   "$IMAGE_TAG" \
-  sh -c '/var/bar-run/bootstrap.sh && exec python3 -m bar_benchmarks.task.main'
+  sh -c '
+set -eu
+idx="${BATCH_TASK_INDEX:-0}"
+root=/var/bar-scratch/tasks/$idx
+export BAR_DATA_DIR=$root/bar-data
+export BAR_RUN_DIR=$root/bar-run
+export BAR_ENGINE_DIR=$root/engine
+export PYTHONPATH=$root/pypkgs
+/var/bar-scratch/bootstrap.sh
+exec python3 -m bar_benchmarks.task.main
+'
 rc=$?
 set -e
 
 # ---- summary ----
 
-verdict="$run_dir/verdict.json"
-bench_out="$data_dir/benchmark-results.json"
-bar_sdd="$data_dir/games/BAR.sdd"
+verdict="$task_scratch/bar-run/verdict.json"
+bench_out="$task_scratch/bar-data/benchmark-results.json"
+bar_sdd="$task_scratch/bar-data/games/BAR.sdd"
 
 echo >&2
 echo "[fake-runner] task exit: $rc" >&2

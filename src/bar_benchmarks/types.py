@@ -86,6 +86,25 @@ class BatchConfig(_Frozen):
     max_run_duration_s: int
     service_account: str | None = None
     wheel: Path | None = None
+    # None → let Batch derive K from vCPUs_per_VM / task.cpu_milli
+    # (plus memory). Set explicitly to cap or to force 1-per-VM.
+    task_count_per_node: int | None = None
+    # Private-IP networking is the default: every Batch VM lands in the
+    # project's `default` VPC with no external IP. The `default` subnet
+    # in us-central1 has Private Google Access enabled, so GCS /
+    # Logging / Artifact Registry stay reachable via the
+    # private.googleapis.com VIP. Set network=None to fall back to
+    # Batch's built-in networking (public IPs) — use for one-off debug
+    # runs only.
+    network: str | None = "default"
+    subnetwork: str | None = "default"
+    no_external_ip: bool = True
+    # Container image pulled by every Runnable. Defaults to the
+    # AR-hosted runtime built from scripts/batch-runtime.Dockerfile;
+    # override for pinned/rolled-back tags.
+    container_image: str = (
+        "us-central1-docker.pkg.dev/bar-experiments/benchmarks/batch-runtime:2026-04-22"
+    )
 
 
 class PerVmSim(_Frozen):

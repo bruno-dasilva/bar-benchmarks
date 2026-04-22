@@ -41,6 +41,14 @@ commit = "2f50bd54ccb364360ca291ef28070c039784eb8c"
 dest = "gs://bar-experiments-bench-artifacts/engine/recoil-892ff9e-master.tar.gz"
 commit = "892ff9eaaa9ced4ec81d515483a70d56b5331420"
 
+[engine.recoil-e8950be-lhog-animation-perf]
+dest = "gs://bar-experiments-bench-artifacts/engine/recoil-e8950be-lhog-animation-perf.tar.gz"
+commit = "e8950be49c382fc8bc21c4ff0bcd065d65fd06c0"
+
+[engine.recoil-55a478a-disable-tickallanims]
+dest = "gs://bar-experiments-bench-artifacts/engine/recoil-55a478a-disable-tickallanims.tar.gz"
+commit = "55a478aa7ee51ccd3fd903e1b2e8fe2a9a064260"
+
 [bar_content.bar-test-29871-90f4bc1]
 dest = "gs://bar-experiments-bench-artifacts/bar-content/bar-test-29871-90f4bc1.tar.gz"
 version = "Beyond All Reason test-29871-90f4bc1"
