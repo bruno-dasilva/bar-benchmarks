@@ -78,6 +78,7 @@ def _upload_run_info(cfg: BatchConfig, job_uid: str, submitted_at: datetime) -> 
             "map": cfg.map_name,
             "scenario": cfg.scenario_dir.name,
             "count": cfg.count,
+            "iterations": cfg.iterations,
             "region": cfg.region,
             "machine_type": cfg.machine_type,
             "min_cpu_platform": cfg.min_cpu_platform,
@@ -115,9 +116,15 @@ def _upload_report_to_bucket(cfg: BatchConfig, job_uid: str, report: BatchReport
 
 
 def _missing_task_indices(
-    results_bucket: str, job_uid: str, submitted: int, *, project: str | None = None
+    results_bucket: str, job_uid: str, count: int, *, project: str | None = None
 ) -> list[int]:
-    """Return the sorted list of task indices that never uploaded results.json."""
+    """Return the sorted list of task indices that never uploaded any results.json.
+
+    A task is considered "present" if at least one blob of the form
+    `<job_uid>/<task_index>/.../results.json` exists — covers both the
+    single-iter layout (`<task>/results.json`) and the multi-iter layout
+    (`<task>/<iter>/results.json`).
+    """
     from google.cloud import storage
 
     client = storage.Client(project=project)
@@ -126,14 +133,16 @@ def _missing_task_indices(
     prefix = f"{job_uid}/"
     present: set[int] = set()
     for blob in client.list_blobs(bucket, prefix=prefix):
-        # Expect key: <job_uid>/<task_index>/results.json
+        if not blob.name.endswith("/results.json"):
+            continue
         parts = blob.name[len(prefix):].split("/")
-        if len(parts) == 2 and parts[1] == "results.json":
-            try:
-                present.add(int(parts[0]))
-            except ValueError:
-                continue
-    return sorted(set(range(submitted)) - present)
+        if not parts:
+            continue
+        try:
+            present.add(int(parts[0]))
+        except ValueError:
+            continue
+    return sorted(set(range(count)) - present)
 
 
 def run(cfg: BatchConfig, *, report_json_path: Path | None = None) -> BatchReport:
@@ -152,7 +161,10 @@ def run(cfg: BatchConfig, *, report_json_path: Path | None = None) -> BatchRepor
 
     _upload_run_info(cfg, job_uid, datetime.now(UTC))
 
-    print(f"[run] submitting Batch Job ({cfg.count} tasks)", file=sys.stderr)
+    print(
+        f"[run] submitting Batch Job ({cfg.count} tasks × {cfg.iterations} iterations)",
+        file=sys.stderr,
+    )
     job = batch_submitter.submit(cfg, job_id=job_uid)
     print(f"[run] submitted: {job.name}", file=sys.stderr)
 
@@ -166,7 +178,7 @@ def run(cfg: BatchConfig, *, report_json_path: Path | None = None) -> BatchRepor
     report = aggregate.from_bucket(
         cfg.results_bucket,
         job_uid,
-        submitted=cfg.count,
+        submitted=cfg.count * cfg.iterations,
         project=cfg.project,
         run_description=cfg.run_description,
     )

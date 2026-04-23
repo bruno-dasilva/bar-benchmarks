@@ -35,6 +35,14 @@ inputs:
     description: "Number of Batch VMs (tasks) to spawn."
     required: false
     default: "20"
+  iterations:
+    description: >-
+      Engine invocations per VM after staging. Each iteration produces a
+      separate benchmark result, at the cost of roughly one engine wall
+      time per iter. Staging cost (engine + bar-content + overlay + map)
+      is paid once. Bump max-run-duration accordingly.
+    required: false
+    default: "1"
   description:
     description: "One-line free-form description shown in the aggregate report."
     required: false
@@ -182,6 +190,7 @@ runs:
           --map "${{ inputs.map }}" \
           --scenario "${{ inputs.scenario }}" \
           --count "${{ inputs.count }}" \
+          --iterations "${{ inputs.iterations }}" \
           --machine-type "${{ inputs.machine-type }}" \
           --results-bucket "${{ inputs.results-bucket }}" \
           --project "${{ inputs.gcp-project }}" \
@@ -205,6 +214,7 @@ runs:
           --map "${{ inputs.map }}"
           --scenario "${{ inputs.scenario }}"
           --count "${{ inputs.count }}"
+          --iterations "${{ inputs.iterations }}"
           --project "${{ inputs.gcp-project }}"
           --region "${{ inputs.gcp-region }}"
           --artifacts-bucket "${{ inputs.artifacts-bucket }}"

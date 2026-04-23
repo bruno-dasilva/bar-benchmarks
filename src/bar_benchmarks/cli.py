@@ -45,6 +45,11 @@ def run_cmd(
         help="Root of the scenarios tree (default: benchmarks/).",
     ),
     count: int = typer.Option(20, min=1),
+    iterations: int = typer.Option(
+        1,
+        min=1,
+        help="Engine invocations per VM after staging (keeps artifacts cached between runs).",
+    ),
     project: str = typer.Option(DEFAULT_PROJECT),
     region: str = typer.Option(DEFAULT_REGION),
     artifacts_bucket: str = typer.Option(DEFAULT_ARTIFACTS_BUCKET),
@@ -89,6 +94,7 @@ def run_cmd(
         run_description=description,
         catalog_path=catalog,
         count=count,
+        iterations=iterations,
         project=project,
         region=region,
         artifacts_bucket=artifacts_bucket,
@@ -125,6 +131,11 @@ def lookup_cmd(
     map_: str = typer.Option(..., "--map", help="Map catalog name to match."),
     scenario: str = typer.Option(..., help="Scenario folder name to match."),
     count: int = typer.Option(..., min=1, help="VM count to match."),
+    iterations: int = typer.Option(
+        1,
+        min=1,
+        help="Per-VM iteration count to match. Defaults to 1 so pre-iterations runs match.",
+    ),
     machine_type: str = typer.Option(..., help="Machine type to match."),
     results_bucket: str = typer.Option(DEFAULT_RESULTS_BUCKET),
     project: str = typer.Option(DEFAULT_PROJECT),
@@ -147,7 +158,8 @@ def lookup_cmd(
 
     shape = (
         f"engine={engine} bar_content={bar_content} map={map_} "
-        f"scenario={scenario} count={count} machine_type={machine_type}"
+        f"scenario={scenario} count={count} iterations={iterations} "
+        f"machine_type={machine_type}"
     )
     print(
         f"[lookup] scanning up to {scan_limit} recent runs in {results_bucket} for {shape}",
@@ -160,6 +172,7 @@ def lookup_cmd(
         map_=map_,
         scenario=scenario,
         count=count,
+        iterations=iterations,
         machine_type=machine_type,
         scan_limit=scan_limit,
         project=project,
@@ -182,7 +195,7 @@ def lookup_cmd(
     report = aggregate.from_bucket(
         results_bucket,
         job_uid,
-        submitted=count,
+        submitted=count * iterations,
         project=project,
         run_description=match.get("run_description"),
     )

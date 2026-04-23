@@ -176,6 +176,7 @@ def build_and_upload(
             "job_uid": job_uid,
             "region": cfg.region,
             "instance_type": cfg.machine_type,
+            "iterations": cfg.iterations,
             "map_filename": map_filename,
             "artifact_names": ArtifactNames(
                 engine=cfg.engine_name,

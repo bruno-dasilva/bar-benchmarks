@@ -138,6 +138,7 @@ def test_build_and_upload_cache_miss_runs_builder(tmp_path, monkeypatch):
     assert manifest["job_uid"] == "job-xyz"
     assert manifest["region"] == "us-west4"
     assert manifest["instance_type"] == "n1-standard-8"
+    assert manifest["iterations"] == 1
     assert manifest["map_filename"] == "tiny.sd7"
     assert manifest["artifact_names"] == {
         "engine": "recoil-test",

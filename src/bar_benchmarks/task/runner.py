@@ -23,6 +23,7 @@ BAR_SDD_NAME = "BAR.sdd"
 OVERLAY_TARBALL = "overlay.tar.gz"
 STARTSCRIPT_NAME = "startscript.txt"
 MANIFEST_NAME = "manifest.json"
+INFOLOG_FILENAME = "infolog.txt"
 
 
 def _extract_tarball(src: Path, dest: Path) -> None:
@@ -89,29 +90,39 @@ def _invoke_engine(startscript: Path) -> tuple[int, float]:
     return proc.returncode, wall
 
 
-def run() -> RunnerVerdict:
+def iter_dir(i: int) -> Path:
+    d = paths.run_dir() / f"iter-{i}"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _write_verdict(i: int, verdict: RunnerVerdict) -> None:
+    (iter_dir(i) / "verdict.json").write_text(
+        json.dumps(verdict.model_dump(mode="json"), indent=2)
+    )
+
+
+def _run_one(startscript: Path, i: int) -> RunnerVerdict:
+    """Execute one engine invocation, capturing its benchmark output + infolog
+    into the per-iteration directory so the next iter starts clean."""
+    out_path = paths.benchmark_output_path()
+    infolog = paths.data_dir() / INFOLOG_FILENAME
+    # Wipe leftovers from a prior iter so missing-output detection fires.
+    if out_path.exists():
+        out_path.unlink()
+    if infolog.exists():
+        infolog.unlink()
+
     started_at = datetime.now(UTC)
-    artifacts = paths.artifacts_dir()
-    bucket_root = paths.artifacts_bucket_dir()
-    manifest = json.loads((artifacts / MANIFEST_NAME).read_text())
-    map_filename = manifest["map_filename"]
-    shared_keys = manifest["paths"]
+    engine_exit, wall = _invoke_engine(startscript)
+    ended_at = datetime.now(UTC)
 
     error: str | None = None
-    engine_exit = -1
-    wall = 0.0
+    if engine_exit != 0:
+        error = "engine_crash"
+    elif not out_path.is_file():
+        error = "overlay_output_missing"
 
-    try:
-        startscript = _stage(artifacts, bucket_root, shared_keys, map_filename)
-        engine_exit, wall = _invoke_engine(startscript)
-        if engine_exit != 0:
-            error = "engine_crash"
-        elif not paths.benchmark_output_path().is_file():
-            error = "overlay_output_missing"
-    except Exception as e:
-        error = f"runner_exception: {e}"
-
-    ended_at = datetime.now(UTC)
     verdict = RunnerVerdict(
         started_at=started_at,
         ended_at=ended_at,
@@ -119,11 +130,54 @@ def run() -> RunnerVerdict:
         engine_wall_s=wall,
         error=error,
     )
+    _write_verdict(i, verdict)
 
-    out = paths.run_dir() / "verdict.json"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(verdict.model_dump(mode="json"), indent=2))
+    target = iter_dir(i)
+    if out_path.is_file():
+        shutil.move(str(out_path), str(target / "benchmark.json"))
+    if infolog.is_file():
+        shutil.move(str(infolog), str(target / INFOLOG_FILENAME))
     return verdict
+
+
+def run() -> list[RunnerVerdict]:
+    artifacts = paths.artifacts_dir()
+    bucket_root = paths.artifacts_bucket_dir()
+    manifest = json.loads((artifacts / MANIFEST_NAME).read_text())
+    map_filename = manifest["map_filename"]
+    shared_keys = manifest["paths"]
+    iterations = int(manifest.get("iterations", 1))
+
+    try:
+        startscript = _stage(artifacts, bucket_root, shared_keys, map_filename)
+    except Exception as e:
+        # Staging failure applies to all iterations — record a single
+        # iter-0 failure verdict so the collector has something to upload.
+        now = datetime.now(UTC)
+        verdict = RunnerVerdict(
+            started_at=now,
+            ended_at=now,
+            engine_exit=-1,
+            error=f"runner_exception: {e}",
+        )
+        _write_verdict(0, verdict)
+        return [verdict]
+
+    verdicts: list[RunnerVerdict] = []
+    for i in range(iterations):
+        try:
+            verdicts.append(_run_one(startscript, i))
+        except Exception as e:
+            now = datetime.now(UTC)
+            v = RunnerVerdict(
+                started_at=now,
+                ended_at=now,
+                engine_exit=-1,
+                error=f"runner_exception: {e}",
+            )
+            _write_verdict(i, v)
+            verdicts.append(v)
+    return verdicts
 
 
 def main() -> int:

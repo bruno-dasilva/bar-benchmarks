@@ -66,6 +66,7 @@ class BatchConfig(_Frozen):
     run_description: str | None = None
     catalog_path: Path
     count: int
+    iterations: int = 1
     project: str
     region: str
     artifacts_bucket: str

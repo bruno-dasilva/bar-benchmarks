@@ -6,17 +6,19 @@ from bar_benchmarks.task import runner
 
 
 def test_runner_happy_path(task_env, tiny_artifacts):
-    verdict = runner.run()
+    verdicts = runner.run()
+    assert len(verdicts) == 1
+    verdict = verdicts[0]
     assert verdict.engine_exit == 0
     assert verdict.error is None
     assert verdict.engine_wall_s is not None and verdict.engine_wall_s >= 0
 
-    # benchmark-results.json written by stub engine
-    bench = json.loads((task_env["data"] / "benchmark-results.json").read_text())
+    # Benchmark output was written by the stub, then moved into iter-0/.
+    bench = json.loads((task_env["run"] / "iter-0" / "benchmark.json").read_text())
     assert bench == {"frames": 10, "fps": 60}
+    assert not (task_env["data"] / "benchmark-results.json").exists()
 
-    # verdict.json written to run dir
-    on_disk = json.loads((task_env["run"] / "verdict.json").read_text())
+    on_disk = json.loads((task_env["run"] / "iter-0" / "verdict.json").read_text())
     assert on_disk["engine_exit"] == 0
     assert on_disk["error"] is None
 
@@ -38,14 +40,39 @@ def test_runner_overlay_output_missing(task_env, tiny_artifacts):
     # Replace engine with a stub that exits 0 but writes no benchmark file.
     _replace_engine(task_env, tiny_artifacts, b"#!/bin/sh\nexit 0\n")
 
-    verdict = runner.run()
-    assert verdict.engine_exit == 0
-    assert verdict.error == "overlay_output_missing"
+    verdicts = runner.run()
+    assert len(verdicts) == 1
+    assert verdicts[0].engine_exit == 0
+    assert verdicts[0].error == "overlay_output_missing"
 
 
 def test_runner_engine_crash(task_env, tiny_artifacts):
     _replace_engine(task_env, tiny_artifacts, b"#!/bin/sh\nexit 42\n")
 
-    verdict = runner.run()
-    assert verdict.engine_exit == 42
-    assert verdict.error == "engine_crash"
+    verdicts = runner.run()
+    assert len(verdicts) == 1
+    assert verdicts[0].engine_exit == 42
+    assert verdicts[0].error == "engine_crash"
+
+
+def test_runner_loops_iterations(task_env, tiny_artifacts):
+    manifest_path = task_env["artifacts"] / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["iterations"] = 3
+    manifest_path.write_text(json.dumps(manifest))
+
+    verdicts = runner.run()
+    assert len(verdicts) == 3
+    for v in verdicts:
+        assert v.engine_exit == 0
+        assert v.error is None
+
+    for i in range(3):
+        iter_dir = task_env["run"] / f"iter-{i}"
+        assert (iter_dir / "verdict.json").is_file()
+        bench = json.loads((iter_dir / "benchmark.json").read_text())
+        assert bench == {"frames": 10, "fps": 60}
+
+    # Each iter should have moved the engine's output — nothing leaks back
+    # into the write-dir.
+    assert not (task_env["data"] / "benchmark-results.json").exists()

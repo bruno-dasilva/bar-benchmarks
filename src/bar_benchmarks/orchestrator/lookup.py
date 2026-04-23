@@ -49,6 +49,7 @@ def find_matching_run(
     map_: str,
     scenario: str,
     count: int,
+    iterations: int = 1,
     machine_type: str,
     scan_limit: int = 100,
     project: str | None = None,
@@ -57,7 +58,9 @@ def find_matching_run(
     """Return the newest matching run's metadata dict, or None.
 
     Matches on the submit-time shape: engine, bar_content, map, scenario,
-    count, machine_type. Inspects up to `scan_limit` most-recent job_uids.
+    count, iterations, machine_type. Inspects up to `scan_limit` most-recent
+    job_uids. Pre-iterations runs (no `iterations` key in run.json) are
+    treated as iterations=1 for match purposes.
     """
     if client is None:
         from google.cloud import storage
@@ -89,6 +92,7 @@ def find_matching_run(
             and meta.get("map") == map_
             and meta.get("scenario") == scenario
             and meta.get("count") == count
+            and meta.get("iterations", 1) == iterations
             and meta.get("machine_type") == machine_type
         ):
             continue
@@ -116,10 +120,11 @@ def find_matching_run(
             continue
         valid = report_data.get("valid", 0) or 0
         invalid = report_data.get("invalid", 0) or 0
-        if invalid > 0 or valid < count:
+        expected = count * iterations
+        if invalid > 0 or valid < expected:
             print(
                 f"[lookup] skipped {job_uid}: run incomplete "
-                f"(valid={valid} invalid={invalid} expected count={count})",
+                f"(valid={valid} invalid={invalid} expected={expected})",
                 file=sys.stderr,
             )
             continue

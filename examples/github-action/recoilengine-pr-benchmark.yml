@@ -11,6 +11,9 @@
 #
 # Cost note: 10 benchmark runs per PR (5 scenarios × candidate+baseline).
 # At count=10, c2d-standard-16, ~8 min wall → ~$0.20 per run, ~$2 per PR.
+# fightertest-* legs run 5 iterations per VM (staging paid once) to
+# yield 50 data points per leg at roughly the same infra cost but ~5×
+# wall time — max-run-duration is bumped accordingly.
 
 name: bar-benchmark
 
@@ -76,11 +79,15 @@ jobs:
       matrix:
         variant: [candidate, baseline]
         case:
-          - { map: starwatcher-v1.0,  scenario: fightertest-bots }
-          - { map: starwatcher-v1.0,  scenario: fightertest-aircraft }
-          - { map: starwatcher-v1.0,  scenario: fightertest-tanks }
-          - { map: starwatcher-v1.0,  scenario: fightertest-pathfinding }
-          - { map: hellas-basin-v1.4, scenario: lategame1 }
+          # fightertest-* scenarios stage quickly and each run is short,
+          # so we loop 5× on the same VM for 50 data points per leg
+          # without paying the spin-up/down cost each time. lategame1 is
+          # already close to the per-task timeout — leave it at 1 iter.
+          - { map: starwatcher-v1.0,  scenario: fightertest-bots,         iterations: 5, max-run-duration: 3600 }
+          - { map: starwatcher-v1.0,  scenario: fightertest-aircraft,     iterations: 5, max-run-duration: 3600 }
+          - { map: starwatcher-v1.0,  scenario: fightertest-tanks,        iterations: 5, max-run-duration: 3600 }
+          - { map: starwatcher-v1.0,  scenario: fightertest-pathfinding,  iterations: 5, max-run-duration: 3600 }
+          - { map: hellas-basin-v1.4, scenario: lategame1,                iterations: 1, max-run-duration: 1800 }
     steps:
       - name: Pick commit for this variant
         id: pick
@@ -101,12 +108,14 @@ jobs:
       - uses: bruno-dasilva/bar-benchmarks@master
         id: bench
         with:
-          engine-commit: ${{ steps.pick.outputs.sha }}
-          bar-content:   ${{ vars.BENCH_BAR_CONTENT || 'bar-test-29871-90f4bc1' }}
-          map:           ${{ matrix.case.map }}
-          scenario:      ${{ matrix.case.scenario }}
-          count:         ${{ vars.BENCH_COUNT || '10' }}
-          gcp-project:   ${{ vars.BENCHMARKS_GCP_PROJECT }}
+          engine-commit:    ${{ steps.pick.outputs.sha }}
+          bar-content:      ${{ vars.BENCH_BAR_CONTENT || 'bar-test-29871-90f4bc1' }}
+          map:              ${{ matrix.case.map }}
+          scenario:         ${{ matrix.case.scenario }}
+          count:            ${{ vars.BENCH_COUNT || '10' }}
+          iterations:       ${{ matrix.case.iterations }}
+          max-run-duration: ${{ matrix.case.max-run-duration }}
+          gcp-project:      ${{ vars.BENCHMARKS_GCP_PROJECT }}
           description:   "${{ matrix.variant }} PR#${{ needs.resolve.outputs.pr }} ${{ matrix.case.scenario }} @ ${{ steps.pick.outputs.sha }}"
           # Reuse prior results when the same (engine-commit, scenario,
           # map, count, machine-type) has already been benchmarked — the
