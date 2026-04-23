@@ -121,13 +121,13 @@ submitted task count, and prints an aggregate. Defaults target the
 `--region`, `--artifacts-bucket`, `--results-bucket`, `--machine-type`,
 and `--max-run-duration`.
 
-## Local iteration
+## Building input artifacts
 
-Five helpers in `scripts/` let the task-side pipeline be exercised without
-round-tripping through GCP Batch. The first three build artifacts from
-upstream sources; the last two publish them and run the task container.
-
-### Builders
+Two helpers in `scripts/` build the engine and bar-content tarballs from
+upstream sources. The production orchestrator invokes them automatically
+on a cache miss (see the `[engine]` / `[bar_content]` entries in
+[`scripts/artifacts.toml`](./scripts/artifacts.toml)); they can also be
+run by hand to prime the cache.
 
 - **`scripts/build-engine.sh --commit SHA --output FILE`** — pulls the
   latest successful "Build Engine v2" GitHub Actions run for the given
@@ -141,29 +141,6 @@ upstream sources; the last two publish them and run the task container.
   `.smoke/bar-content-build/Beyond-All-Reason/`), checks out `<sha>`,
   writes a matching `VERSION` file at the clone root, and tars the tree
   as `bar-content.tar.gz`.
-- **`scripts/build-startscript.sh --template FILE --version X [--map Y] --output FILE`** —
-  patches the `GameType=` and (optionally) `Mapname=` lines of a template
-  startscript. Useful when syncing a scenario's startscript to a new
-  bar-content build.
-
-### Publishing and running
-
-- **`scripts/fake-orchestrator.sh --engine|--bar-content|--map NAME [FILE]`** —
-  publishes a local tarball/file to the gs:// URI named in
-  [`scripts/artifacts.toml`](./scripts/artifacts.toml). Map entries shaped
-  `{source = "https://...", dest = "gs://..."}` mirror from the source URL
-  to the dest bucket (no `FILE` argument); use this to pull maps from
-  springfiles.com straight into your artifacts bucket.
-- **`scripts/fake-runner.sh --engine NAME --bar-content NAME --map NAME --scenario NAME`** —
-  runs the task-side Python pipeline in a Docker container impersonating
-  a Batch VM. Engine/bar-content/map are resolved through the catalog;
-  the scenario is a repo-local folder. Exports the same `BAR_*` env vars
-  the production Batch VM gets, lays out
-  `.smoke/fake-runner/{artifacts,data,run,engine,results}/` to mirror the
-  on-VM directory layout, and invokes `uv run python -m bar_benchmarks.task.main`.
-
-The catalog is a dev-side parallel addressing scheme. The production
-orchestrator's bucket layout (`<job_uid>/...`) is unchanged.
 
 ### Scenario folders
 
@@ -178,46 +155,30 @@ benchmarks/<name>/
       luarules/gadgets/<bench>.lua # overrides/adds to the base bar-content
 ```
 
-`fake-runner.sh` uses `scenario/startscript.txt` directly and tars
-`scenario/bar-data/` on the fly into the `overlay.tar.gz` the task-side
-runner expects.
+The orchestrator tars `scenario/bar-data/` into the per-job
+`overlay.tar.gz` on the fly and uploads `scenario/startscript.txt` verbatim.
 
 ### End-to-end example
 
 Using the `benchmarks/lategame1/` scenario, RecoilEngine commit
-`5c157c84bf11cfeadadade183f373b03cdb9fb7a`, and BAR commit `90f4bc1`:
+`5c157c84bf11cfeadadade183f373b03cdb9fb7a`, BAR commit `90f4bc1`, and map
+`hellas-basin-v1.4`, all registered in `scripts/artifacts.toml`:
 
 ```bash
-# 1. Build the engine and bar-content tarballs locally
-scripts/build-engine.sh \
-    --commit 5c157c84bf11cfeadadade183f373b03cdb9fb7a \
-    --output /tmp/recoil-5c157c8-perf-wins.tar.gz
-
-scripts/build-bar-content.sh \
-    --version "Beyond All Reason test-29871-90f4bc1" \
-    --output /tmp/bar-test-29871-90f4bc1.tar.gz
-
-# 2. Register catalog entries in scripts/artifacts.toml:
-#   [engine]
-#   recoil-5c157c8-perf-wins = "gs://bar-experiments-bench-artifacts/engine/recoil-5c157c8-perf-wins.tar.gz"
-#   [bar_content]
-#   bar-test-29871-90f4bc1 = "gs://bar-experiments-bench-artifacts/bar-content/bar-test-29871-90f4bc1.tar.gz"
-#   [map."hellas-basin-v1.4"]
-#   source = "https://springfiles.springrts.com/files/maps/hellas_basin_v1.4.sd7"
-#   dest   = "gs://bar-experiments-bench-artifacts/maps/hellas_basin_v1.4.sd7"
-
-# 3. Publish to the artifacts bucket
-scripts/fake-orchestrator.sh --engine      recoil-5c157c8-perf-wins /tmp/recoil-5c157c8-perf-wins.tar.gz
-scripts/fake-orchestrator.sh --bar-content bar-test-29871-90f4bc1 /tmp/bar-test-29871-90f4bc1.tar.gz
-scripts/fake-orchestrator.sh --map         hellas-basin-v1.4      # mirrors from springfiles
-
-# 4. Run the task pipeline
-scripts/fake-runner.sh \
+uv run bar-bench run \
     --engine      recoil-5c157c8-perf-wins \
     --bar-content bar-test-29871-90f4bc1 \
     --map         hellas-basin-v1.4 \
-    --scenario    lategame1
+    --scenario    lategame1 \
+    --count       10
 ```
+
+The orchestrator resolves each name against the catalog, builds+uploads
+missing artifacts on demand (engine via `scripts/build-engine.sh`,
+bar-content via `scripts/build-bar-content.sh`, map via curl against the
+entry's `source` URL), submits a Batch Job, and blocks until every Task
+is terminal. See [`run_benchmarks.sh`](./run_benchmarks.sh) for a
+multi-scenario baseline.
 
 ## Prerequisites
 

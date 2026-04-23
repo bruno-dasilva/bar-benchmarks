@@ -4,8 +4,9 @@
 # it into /var/bar-data/games/BAR.sdd/ yields a valid Spring .sdd directory
 # including a VERSION file whose contents match the startscript's GameType.
 #
-# Pairs with scripts/fake-orchestrator.sh: this script builds the local
-# tarball, fake-orchestrator.sh uploads it under a catalog name.
+# Invoked by the orchestrator (src/bar_benchmarks/orchestrator/build.py)
+# on a cache miss to materialize the tarball before it's uploaded to the
+# catalog's `dest`. Safe to run by hand for priming.
 
 set -euo pipefail
 

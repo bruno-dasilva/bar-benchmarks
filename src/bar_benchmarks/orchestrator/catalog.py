@@ -1,9 +1,8 @@
 """Load scripts/artifacts.toml and resolve names to (dest_uri, build spec).
 
-The catalog is the shared source of truth for engine / bar-content / map
-identities. The production orchestrator and the dev-side fake-runner both
-read it. Bucket keys are name-based (not content-hashed) so we can decide
-whether to skip a build before we have the tarball on disk.
+The catalog is the source of truth for engine / bar-content / map
+identities. Bucket keys are name-based (not content-hashed) so we can
+decide whether to skip a build before we have the tarball on disk.
 """
 
 from __future__ import annotations

@@ -4,10 +4,9 @@
 # Usage: scripts/build-batch-runtime.sh [TAG]
 #   TAG defaults to today's UTC date (YYYY-MM-DD).
 #
-# After pushing, update the tag in both:
-#   - src/bar_benchmarks/orchestrator/batch_submitter.py (CONTAINER_IMAGE)
-#   - scripts/fake-runner.sh (IMAGE_TAG)
-# so production and local loops pull the same image.
+# After pushing, update the tag in
+# src/bar_benchmarks/orchestrator/batch_submitter.py (CONTAINER_IMAGE)
+# so the Batch Job pulls the new image.
 
 set -euo pipefail
 

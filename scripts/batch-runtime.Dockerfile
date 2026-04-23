@@ -1,16 +1,13 @@
-# Runtime image for Batch Tasks and the fake-runner dev loop. Pushed to
-# us-central1-docker.pkg.dev/bar-experiments/benchmarks/batch-runtime:<tag>.
-# Pulled by both the real Batch Job (batch_submitter.CONTAINER_IMAGE) and
-# scripts/fake-runner.sh — single source of truth so a passing fake-runner
-# implies the Batch path will work.
+# Runtime image for Batch Tasks. Pushed to
+# us-central1-docker.pkg.dev/bar-experiments/benchmarks/batch-runtime:<tag>
+# and pulled by the Batch Job (batch_submitter.CONTAINER_IMAGE).
 #
 # linux/amd64 is hard-pinned: spring-headless is an amd64 binary and Batch
-# VMs are amd64. On Apple Silicon, fake-runner needs Docker Desktop with
-# Rosetta emulation enabled.
+# VMs are amd64.
 #
 # To roll a new image: edit this file, bump the tag in
-#   src/bar_benchmarks/orchestrator/batch_submitter.py (CONTAINER_IMAGE)
-# and scripts/fake-runner.sh, then run scripts/build-batch-runtime.sh.
+# src/bar_benchmarks/orchestrator/batch_submitter.py (CONTAINER_IMAGE),
+# then run scripts/build-batch-runtime.sh.
 
 FROM --platform=linux/amd64 python:3.11-slim
 

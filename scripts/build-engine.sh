@@ -4,8 +4,9 @@
 # amd64-linux output so `spring-headless` sits at the tarball root (where
 # src/bar_benchmarks/task/runner.py:47 expects it after extraction).
 #
-# Pairs with scripts/fake-orchestrator.sh: this script produces the local
-# tarball; fake-orchestrator.sh --engine NAME <output> uploads it.
+# Invoked by the orchestrator (src/bar_benchmarks/orchestrator/build.py)
+# on a cache miss to materialize the tarball before it's uploaded to the
+# catalog's `dest`. Safe to run by hand for priming.
 
 set -euo pipefail
 

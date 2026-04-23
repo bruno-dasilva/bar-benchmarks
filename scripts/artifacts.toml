@@ -1,13 +1,12 @@
 # Artifact catalog. Source of truth for every artifact (engine,
-# bar-content, map) that gets staged to the artifacts bucket. Consumed by:
-#   - scripts/fake-runner.sh / scripts/fake-orchestrator.sh (dev loop)
-#   - src/bar_benchmarks/orchestrator/catalog.py (production orchestrator)
+# bar-content, map) that gets staged to the artifacts bucket. Consumed by
+# src/bar_benchmarks/orchestrator/catalog.py.
 #
 # Names inside a section are CLI handles: pass them verbatim to
-# `bar-bench run --engine NAME --bar-content NAME --map NAME` and
-# `fake-runner.sh`. The orchestrator looks up the entry, checks whether
-# the bucket already has the blob at `dest`, and only builds +
-# uploads on a miss. Adding a new artifact = add an entry here.
+# `bar-bench run --engine NAME --bar-content NAME --map NAME`. The
+# orchestrator looks up the entry, checks whether the bucket already has
+# the blob at `dest`, and only builds + uploads on a miss. Adding a new
+# artifact = add an entry here.
 #
 # Entry shape (always a TOML table now):
 #   engine.<name>       dest = "gs://...", commit = "<git SHA>"

@@ -151,8 +151,8 @@ src/bar_benchmarks/
   paths.py        # BAR_* env-var resolution shared by task and orchestrator
   cli.py          # `bar-bench` Typer entrypoint
 tests/
-scripts/          # dev-side iteration tooling — see § Local iteration tooling
-benchmarks/       # scenario folders consumed by fake-runner --scenario NAME
+scripts/          # artifact builders + Batch runtime image — see § Local iteration tooling
+benchmarks/       # scenario folders consumed by `bar-bench run --scenario NAME`
   <name>/
     startscript.txt
     bar-data/     # tarred into overlay.tar.gz; extracts onto /var/bar-data/
@@ -160,10 +160,10 @@ benchmarks/       # scenario folders consumed by fake-runner --scenario NAME
 
 ## Local iteration tooling
 
-Five helpers in `scripts/` exercise the task-side pipeline without
-round-tripping through GCP Batch.
-
-**Builders** (produce local artifact tarballs from upstream sources):
+The real `bar-bench run` flow is the only execution path. Two builder
+scripts in `scripts/` materialize the engine and bar-content tarballs
+from upstream sources on a cache miss; the orchestrator invokes them
+automatically, but they can also be run by hand.
 
 - `scripts/build-engine.sh --commit SHA --output FILE` — pulls the latest
   successful "Build Engine v2" GitHub Actions run for a RecoilEngine
@@ -174,35 +174,17 @@ round-tripping through GCP Batch.
   clones `beyond-all-reason/Beyond-All-Reason`, checks out `<sha>`, writes
   a matching `VERSION` file at the clone root, and tars the tree.
   Persistent clone at `.smoke/bar-content-build/Beyond-All-Reason/`.
-- `scripts/build-startscript.sh --template FILE --version X [--map Y] --output FILE` —
-  patches the `GameType=` and (optionally) `Mapname=` lines of a template
-  startscript so they stay in sync with a bar-content build.
 
-**Publisher + runner**:
-
-- `scripts/fake-orchestrator.sh --engine|--bar-content|--map NAME [FILE]`
-  publishes to the gs:// URI the catalog at
-  `scripts/artifacts.toml` binds that name to. Map entries shaped
-  `{source = "https://...", dest = "gs://..."}` mirror on demand (no FILE).
-- `scripts/fake-runner.sh --engine NAME --bar-content NAME --map NAME --scenario NAME`
-  runs the task-side Python pipeline in a Docker container impersonating
-  a Batch VM. Engine/bar-content/map are catalog-resolved; the scenario
-  is a repo-local folder under `benchmarks/<name>/` whose `startscript.txt`
-  is used verbatim and whose `bar-data/` is tarred into `overlay.tar.gz`
-  on the fly.
-
-The catalog is the **shared source of truth** for artifact identity:
-both `fake-runner.sh` and the production orchestrator
-(`bar-bench run --engine NAME --bar-content NAME --map NAME --scenario
-NAME`) look up names in `scripts/artifacts.toml`, resolve them to
-`dest` gs:// URIs, and stage the referenced blobs. On a cache miss
-(the bucket doesn't have the blob yet), the production orchestrator
-shells out to `scripts/build-engine.sh` (using the entry's `commit`),
-`scripts/build-bar-content.sh` (using `version`), or curl (using the
-map entry's `source` URL) to materialize the tarball locally, then
-uploads it to the catalog's `dest`. Names — not content hashes — drive
-the cache check so the orchestrator can skip the build before
-touching local disk.
+`scripts/artifacts.toml` is the **catalog of named artifacts**:
+`bar-bench run --engine NAME --bar-content NAME --map NAME --scenario NAME`
+looks up each name there, resolves it to a `dest` gs:// URI, and stages
+the referenced blob. On a cache miss (the bucket doesn't have the blob
+yet), the orchestrator shells out to `scripts/build-engine.sh` (using
+the entry's `commit`), `scripts/build-bar-content.sh` (using `version`),
+or curl (using a map entry's `source` URL) to materialize the tarball
+locally, then uploads it to the catalog's `dest`. Names — not content
+hashes — drive the cache check so the orchestrator can skip the build
+before touching local disk.
 
 Bucket layout the orchestrator writes:
 
@@ -225,37 +207,8 @@ The task VM gets two FUSE mounts:
   The runner resolves engine/bar-content/map under this mount using
   the `paths` block in `manifest.json`.
 
-`fake-runner.sh` impersonates a Batch Task VM: it builds the
-`bar_benchmarks` wheel into the per-job subtree, stages the artifacts
-into the same bucket-layout tree, then runs
-`batch_submitter.BOOTSTRAP_SCRIPT` (extracted verbatim from the Python
-module) followed by `python3 -m bar_benchmarks.task.main` inside the
-same Artifact Registry image the real Batch Job pulls
-(`us-central1-docker.pkg.dev/bar-experiments/benchmarks/batch-runtime:<tag>`,
-built from `scripts/batch-runtime.Dockerfile`). Mounts place
-`$workdir/{bucket,bucket/fake-runner-local,results,data,run,engine}`
-at the canonical Batch paths (`/mnt/artifacts-bucket`,
-`/mnt/artifacts`, `/mnt/results`, `/var/bar-data`, `/var/bar-run`,
-`/opt/recoil`). On Apple Silicon this requires Docker Desktop with
-Rosetta enabled (Settings → General → "Use Rosetta for x86_64/amd64
-emulation") so the amd64 `spring-headless` binary can execute.
-Downloaded artifacts are cached at
-`.smoke/fake-runner/cache/<bucket>/<key>` so re-runs skip the network.
-
 When the runtime image needs to change (e.g. spring-headless surfaces
 a missing lib, or a new Python dep should be pre-baked): edit
 `scripts/batch-runtime.Dockerfile`, run `scripts/build-batch-runtime.sh`
-to push a new tag to AR, and bump the tag in **both**
-`batch_submitter.CONTAINER_IMAGE` and `fake-runner.sh:IMAGE_TAG` in
-the same commit — the two consumers must stay in lockstep.
-
-Example invocation (engine/bar-content/map are catalog names; scenario
-is `benchmarks/lategame1/`):
-
-```
-scripts/fake-runner.sh \
-    --engine recoil-5c157c8-perf-wins \
-    --bar-content bar-test-29871-90f4bc1 \
-    --map hellas-basin-v1.4 \
-    --scenario lategame1
-```
+to push a new tag to AR, and bump the tag in
+`batch_submitter.CONTAINER_IMAGE`.

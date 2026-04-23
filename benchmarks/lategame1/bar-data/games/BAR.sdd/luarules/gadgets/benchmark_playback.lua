@@ -711,9 +711,9 @@ else
 				fps          = simFrames / wall,
 				streams      = collectStreamStats(),
 			}
-			-- Filename matches the harness default at src/bar_benchmarks/paths.py
-			-- and scripts/fake-runner.sh. Spring's unsynced Lua sandbox doesn't
-			-- expose os.getenv, so we can't read BAR_BENCHMARK_OUTPUT_PATH here.
+			-- Filename matches the harness default at src/bar_benchmarks/paths.py.
+			-- Spring's unsynced Lua sandbox doesn't expose os.getenv, so we
+			-- can't read BAR_BENCHMARK_OUTPUT_PATH here.
 			local path = "benchmark-results.json"
 			local out = io.open(path, "wb")
 			if out then
