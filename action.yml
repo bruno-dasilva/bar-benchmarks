@@ -77,11 +77,25 @@ inputs:
       need a PAT with `actions:read` on beyond-all-reason/RecoilEngine.
     required: false
     default: ${{ github.token }}
+  lookup-prior-results:
+    description: >-
+      If 'true', scan the results bucket for a prior run with the same
+      (engine, bar-content, map, scenario, count, machine-type) and reuse
+      its aggregated report instead of submitting a new Batch job.
+    required: false
+    default: "false"
+  lookup-scan-limit:
+    description: "Max recent job UIDs to inspect when lookup-prior-results is true."
+    required: false
+    default: "100"
 
 outputs:
   job-uid:
     description: "Batch job UID, e.g. bar-bench-1713831234-a1b2c3."
     value: ${{ steps.parse.outputs.job-uid }}
+  prior-run-hit:
+    description: "'true' if lookup-prior-results found a match and skipped the Batch run."
+    value: ${{ steps.lookup.outputs.hit }}
   results-gcs-uri:
     description: "gs:// prefix under which per-task results.json blobs live."
     value: ${{ steps.parse.outputs.results-gcs-uri }}
@@ -154,7 +168,29 @@ runs:
         uv run python action/build_catalog.py "${args[@]}" | tee -a "${GITHUB_OUTPUT}"
         echo "catalog-path=${MERGED}" >> "${GITHUB_OUTPUT}"
 
+    - name: Lookup prior results
+      id: lookup
+      if: inputs.lookup-prior-results == 'true'
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        REPORT="${RUNNER_TEMP}/bar-bench-report.json"
+        uv run bar-bench lookup \
+          --engine "${{ steps.catalog.outputs.engine-name }}" \
+          --bar-content "${{ steps.catalog.outputs.bar-content-name }}" \
+          --map "${{ inputs.map }}" \
+          --scenario "${{ inputs.scenario }}" \
+          --count "${{ inputs.count }}" \
+          --machine-type "${{ inputs.machine-type }}" \
+          --results-bucket "${{ inputs.results-bucket }}" \
+          --project "${{ inputs.gcp-project }}" \
+          --scan-limit "${{ inputs.lookup-scan-limit }}" \
+          --report-json "${REPORT}" \
+          | tee -a "${GITHUB_OUTPUT}"
+
     - name: Run benchmark
+      if: steps.lookup.outputs.hit != 'true'
       shell: bash
       working-directory: ${{ github.action_path }}
       env:

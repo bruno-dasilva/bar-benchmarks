@@ -116,3 +116,59 @@ def stats_cmd(
 
     report = aggregate.from_bucket(results_bucket, job_uid, submitted=submitted, project=project)
     aggregate.print_report(report)
+
+
+@app.command("lookup")
+def lookup_cmd(
+    engine: str = typer.Option(..., help="Engine catalog name to match."),
+    bar_content: str = typer.Option(..., help="Bar-content catalog name to match."),
+    map_: str = typer.Option(..., "--map", help="Map catalog name to match."),
+    scenario: str = typer.Option(..., help="Scenario folder name to match."),
+    count: int = typer.Option(..., min=1, help="VM count to match."),
+    machine_type: str = typer.Option(..., help="Machine type to match."),
+    results_bucket: str = typer.Option(DEFAULT_RESULTS_BUCKET),
+    project: str = typer.Option(DEFAULT_PROJECT),
+    scan_limit: int = typer.Option(100, min=1, help="Max recent run.json blobs to scan."),
+    report_json: Path = typer.Option(
+        ...,
+        "--report-json",
+        help="On hit, write the aggregated BatchReport here.",
+    ),
+) -> None:
+    """Look for a prior run matching these parameters; on hit, re-aggregate it.
+
+    Prints `hit=true|false` and `job-uid=<id>` on stdout (both suitable to
+    append to $GITHUB_OUTPUT). Always exits 0; inspect the `hit=` line.
+    """
+    from bar_benchmarks.orchestrator import lookup as lookup_mod
+    from bar_benchmarks.stats import aggregate
+
+    match = lookup_mod.find_matching_run(
+        results_bucket=results_bucket,
+        engine=engine,
+        bar_content=bar_content,
+        map_=map_,
+        scenario=scenario,
+        count=count,
+        machine_type=machine_type,
+        scan_limit=scan_limit,
+        project=project,
+    )
+    if match is None:
+        print("hit=false")
+        return
+
+    job_uid = match["job_uid"]
+    report = aggregate.from_bucket(
+        results_bucket,
+        job_uid,
+        submitted=count,
+        project=project,
+        run_description=match.get("run_description"),
+    )
+    report_json.write_text(report.model_dump_json(indent=2))
+    print("hit=true")
+    print(f"job-uid={job_uid}")
+    submitted_at = match.get("submitted_at")
+    if submitted_at:
+        print(f"submitted-at={submitted_at}")
