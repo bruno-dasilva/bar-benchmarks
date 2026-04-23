@@ -7,7 +7,7 @@
 #
 # To roll a new image: edit this file, bump the tag in
 # src/bar_benchmarks/orchestrator/batch_submitter.py (CONTAINER_IMAGE),
-# then run scripts/build-batch-runtime.sh.
+# then run batch-runtime/build.sh.
 
 FROM --platform=linux/amd64 python:3.11-slim
 

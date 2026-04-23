@@ -94,7 +94,7 @@ def fetch_map(spec: MapSpec, out_dir: Path) -> Path:
         raise RuntimeError(
             f"map {spec.name!r} is not in the bucket and has no source URL to mirror from; "
             f"upload the map file directly to {spec.dest_uri}, "
-            f"or add a `source = \"https://...\"` line to the map's entry in scripts/artifacts.toml "
+            f"or add a `source = \"https://...\"` line to the map's entry in artifacts.toml "
             f"so the orchestrator can mirror it on cache miss"
         )
     # dest URI basename is the canonical on-disk filename (runner copies it

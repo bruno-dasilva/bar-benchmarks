@@ -1,4 +1,4 @@
-"""Load scripts/artifacts.toml and resolve names to (dest_uri, build spec).
+"""Load artifacts.toml and resolve names to (dest_uri, build spec).
 
 The catalog is the source of truth for engine / bar-content / map
 identities. Bucket keys are name-based (not content-hashed) so we can

@@ -103,7 +103,7 @@ and `--max-run-duration`.
 Two helpers in `scripts/` build the engine and bar-content tarballs from
 upstream sources. The production orchestrator invokes them automatically
 on a cache miss (see the `[engine]` / `[bar_content]` entries in
-[`scripts/artifacts.toml`](./scripts/artifacts.toml)); they can also be
+[`artifacts.toml`](./artifacts.toml)); they can also be
 run by hand to prime the cache.
 
 - **`scripts/build-engine.sh --commit SHA --output FILE`** — pulls the
@@ -139,7 +139,7 @@ The orchestrator tars `scenario/bar-data/` into the per-job
 
 Using the `benchmarks/lategame1/` scenario, RecoilEngine commit
 `5c157c84bf11cfeadadade183f373b03cdb9fb7a`, BAR commit `90f4bc1`, and map
-`hellas-basin-v1.4`, all registered in `scripts/artifacts.toml`:
+`hellas-basin-v1.4`, all registered in `artifacts.toml`:
 
 ```bash
 uv run bar-bench run \

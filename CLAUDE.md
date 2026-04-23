@@ -156,7 +156,7 @@ automatically, but they can also be run by hand.
   a matching `VERSION` file at the clone root, and tars the tree.
   Persistent clone at `.smoke/bar-content-build/Beyond-All-Reason/`.
 
-`scripts/artifacts.toml` is the **catalog of named artifacts**:
+`artifacts.toml` (repo root) is the **catalog of named artifacts**:
 `bar-bench run --engine NAME --bar-content NAME --map NAME --scenario NAME`
 looks up each name there, resolves it to a `dest` gs:// URI, and stages
 the referenced blob. On a cache miss (the bucket doesn't have the blob
@@ -190,6 +190,6 @@ The task VM gets two FUSE mounts:
 
 When the runtime image needs to change (e.g. spring-headless surfaces
 a missing lib, or a new Python dep should be pre-baked): edit
-`scripts/batch-runtime.Dockerfile`, run `scripts/build-batch-runtime.sh`
+`batch-runtime/Dockerfile`, run `batch-runtime/build.sh`
 to push a new tag to AR, and bump the tag in
 `batch_submitter.CONTAINER_IMAGE`.

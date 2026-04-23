@@ -56,7 +56,7 @@ class BatchConfig(_Frozen):
     """Parsed CLI args for one `bar-bench run` invocation. Control-host only.
 
     Engine / bar-content / map identities are catalog names resolved against
-    scripts/artifacts.toml; the scenario folder supplies overlay + startscript.
+    artifacts.toml; the scenario folder supplies overlay + startscript.
     """
 
     engine_name: str

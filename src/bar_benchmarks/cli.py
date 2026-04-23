@@ -17,7 +17,7 @@ DEFAULT_REGION = "us-central1"
 DEFAULT_ARTIFACTS_BUCKET = "gs://bar-experiments-bench-artifacts"
 DEFAULT_RESULTS_BUCKET = "gs://bar-experiments-bench-results"
 DEFAULT_MACHINE = "n1-standard-8"
-DEFAULT_CATALOG = Path("scripts/artifacts.toml")
+DEFAULT_CATALOG = Path("artifacts.toml")
 DEFAULT_BENCHMARKS_DIR = Path("benchmarks")
 
 
@@ -38,7 +38,7 @@ def run_cmd(
     ),
     catalog: Path = typer.Option(
         DEFAULT_CATALOG, exists=True, dir_okay=False, readable=True,
-        help="Path to the artifact catalog (scripts/artifacts.toml).",
+        help="Path to the artifact catalog (artifacts.toml).",
     ),
     benchmarks_dir: Path = typer.Option(
         DEFAULT_BENCHMARKS_DIR, exists=True, file_okay=False, readable=True,

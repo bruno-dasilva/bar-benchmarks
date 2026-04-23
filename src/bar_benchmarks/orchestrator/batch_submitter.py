@@ -67,7 +67,7 @@ SCRATCH_MOUNT = "/mnt/disks/scratch"
 SCRATCH_CONTAINER_PATH = "/var/bar-scratch"
 
 # Each runnable runs inside this container. The image is hosted in
-# Artifact Registry (scripts/batch-runtime.Dockerfile builds it) so VMs
+# Artifact Registry (batch-runtime/Dockerfile builds it) so VMs
 # on private IPs can pull without external network access — Private
 # Google Access covers *.pkg.dev. Pre-installed pydantic means the
 # bootstrap doesn't hit PyPI either.

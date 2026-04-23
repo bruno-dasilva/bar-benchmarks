@@ -60,7 +60,7 @@ Each **Task** maps 1:1 to one benchmark run on one VM.
 
 - Parses the batch config (artifacts, N, instance spec).
 - Resolves engine / bar-content / map catalog names against
-  `scripts/artifacts.toml`, checks whether each blob already lives at
+  `artifacts.toml`, checks whether each blob already lives at
   its content-stable bucket key, and builds+uploads on a miss (via
   `scripts/build-engine.sh` / `scripts/build-bar-content.sh` / curl).
   Uploads the per-job overlay (packed from the scenario) + startscript

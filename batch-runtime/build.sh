@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build and push the Batch runtime image to Artifact Registry.
 #
-# Usage: scripts/build-batch-runtime.sh [TAG]
+# Usage: batch-runtime/build.sh [TAG]
 #   TAG defaults to today's UTC date (YYYY-MM-DD).
 #
 # After pushing, update the tag in
@@ -20,7 +20,6 @@ command -v docker >/dev/null || { echo "docker not found on PATH" >&2; exit 1; }
 gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
 docker build --platform=linux/amd64 \
-  -f "$script_dir/batch-runtime.Dockerfile" \
   -t "$image" \
   "$script_dir"
 
