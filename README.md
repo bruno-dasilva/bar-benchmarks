@@ -157,6 +157,35 @@ entry's `source` URL), submits a Batch Job, and blocks until every Task
 is terminal. See [`run_benchmarks.sh`](./run_benchmarks.sh) for a
 multi-scenario baseline.
 
+## GitHub Action
+
+This repo also publishes itself as a reusable composite GitHub Action, so
+other repos (e.g. `beyond-all-reason/RecoilEngine`) can run a benchmark
+batch from CI:
+
+```yaml
+- uses: google-github-actions/auth@v2
+  with:
+    workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+    service_account: ${{ vars.BENCH_OPERATOR_SA }}
+
+- uses: beyond-all-reason/bar-benchmarks@v1
+  id: bench
+  with:
+    engine-commit: ${{ github.event.pull_request.head.sha }}
+    bar-content:   bar-test-29871-90f4bc1
+    map:           hellas-basin-v1.4
+    scenario:      lategame1
+    count:         10
+    gcp-project:   bar-experiments
+```
+
+Outputs (`steps.bench.outputs.mean-ms`, `.p95-ms`, `.valid-count`, …) feed a
+PR comment or a regression gate. See [`docs/github-action.md`](./docs/github-action.md)
+for the full input/output reference and GCP setup, and
+[`examples/github-action/recoil-pr-benchmark.yml`](./examples/github-action/recoil-pr-benchmark.yml)
+for a complete PR-triggered workflow.
+
 ## Prerequisites
 
 One-time setup for the `bar-experiments` project (or whatever `--project`

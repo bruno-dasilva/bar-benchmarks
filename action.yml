@@ -1,0 +1,212 @@
+name: "bar-benchmarks"
+description: >-
+  Run a Beyond All Reason performance scenario across N identical GCP Batch
+  VMs and collect aggregate stats. Wraps `bar-bench run` as a composite
+  action; expects Google Cloud ADC to already be configured in the job
+  (e.g. via google-github-actions/auth@v2).
+author: "Beyond All Reason"
+
+inputs:
+  scenario:
+    description: "Folder name under benchmarks/ (e.g. lategame1)."
+    required: true
+  map:
+    description: "Map catalog name (e.g. hellas-basin-v1.4)."
+    required: true
+  engine:
+    description: "Engine catalog name from artifacts.toml. Mutually exclusive with engine-commit."
+    required: false
+    default: ""
+  engine-commit:
+    description: "RecoilEngine commit SHA (>=7 chars hex). Ad-hoc; synthesizes a catalog entry."
+    required: false
+    default: ""
+  bar-content:
+    description: "Bar-content catalog name. Mutually exclusive with bar-content-version."
+    required: false
+    default: ""
+  bar-content-version:
+    description: >-
+      Full BAR content version string, e.g. 'Beyond All Reason test-29871-90f4bc1'.
+      Ad-hoc; synthesizes a catalog entry.
+    required: false
+    default: ""
+  count:
+    description: "Number of Batch VMs (tasks) to spawn."
+    required: false
+    default: "20"
+  description:
+    description: "One-line free-form description shown in the aggregate report."
+    required: false
+    default: ""
+  gcp-project:
+    description: "GCP project ID that owns the Batch job + buckets."
+    required: true
+  gcp-region:
+    description: "GCP region for the Batch job."
+    required: false
+    default: "us-central1"
+  artifacts-bucket:
+    description: "gs:// URI of the artifacts bucket."
+    required: false
+    default: "gs://bar-experiments-bench-artifacts"
+  results-bucket:
+    description: "gs:// URI of the results bucket."
+    required: false
+    default: "gs://bar-experiments-bench-results"
+  machine-type:
+    description: "GCE machine type for each VM."
+    required: false
+    default: "n1-standard-8"
+  service-account:
+    description: "Service account email to attach to Batch VMs. Default derives from gcp-project."
+    required: false
+    default: ""
+  max-run-duration:
+    description: "Per-task Batch timeout in seconds."
+    required: false
+    default: "1800"
+  github-token:
+    description: >-
+      Token used by scripts/build-engine.sh to download RecoilEngine GitHub
+      Actions artifacts. Required only when engine-commit is set and the
+      engine tarball is not already cached. For cross-repo access you may
+      need a PAT with `actions:read` on beyond-all-reason/RecoilEngine.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  job-uid:
+    description: "Batch job UID, e.g. bar-bench-1713831234-a1b2c3."
+    value: ${{ steps.parse.outputs.job-uid }}
+  results-gcs-uri:
+    description: "gs:// prefix under which per-task results.json blobs live."
+    value: ${{ steps.parse.outputs.results-gcs-uri }}
+  report-json-path:
+    description: "Path to the full structured BatchReport JSON on the runner."
+    value: ${{ steps.parse.outputs.report-json-path }}
+  mean-ms:
+    description: "Across-VM mean sim frame time in milliseconds."
+    value: ${{ steps.parse.outputs.mean-ms }}
+  p95-ms:
+    description: "Across-VM p95 sim frame time in milliseconds."
+    value: ${{ steps.parse.outputs.p95-ms }}
+  median-ms:
+    description: "Across-VM median sim frame time in milliseconds."
+    value: ${{ steps.parse.outputs.median-ms }}
+  stddev-ms:
+    description: "Pooled across-VM sim frame time stddev in milliseconds."
+    value: ${{ steps.parse.outputs.stddev-ms }}
+  valid-count:
+    description: "Number of VMs that produced a valid results.json."
+    value: ${{ steps.parse.outputs.valid-count }}
+  invalid-count:
+    description: "Number of VMs that failed or uploaded an invalid results.json."
+    value: ${{ steps.parse.outputs.invalid-count }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        enable-cache: true
+        cache-dependency-glob: ${{ github.action_path }}/uv.lock
+
+    - name: Install sync'd environment
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: uv sync --frozen
+
+    - name: Install ad-hoc engine build deps
+      # Only needed when we might shell out to scripts/build-engine.sh on a cache miss.
+      if: inputs.engine-commit != ''
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends p7zip-full
+
+    - name: Build merged catalog
+      id: catalog
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        MERGED="${RUNNER_TEMP}/bar-bench-catalog.toml"
+        args=(
+          --base-catalog artifacts.toml
+          --out-catalog "${MERGED}"
+          --artifacts-bucket "${{ inputs.artifacts-bucket }}"
+        )
+        [ -n "${{ inputs.engine }}" ] && args+=(--engine "${{ inputs.engine }}")
+        [ -n "${{ inputs.engine-commit }}" ] && args+=(--engine-commit "${{ inputs.engine-commit }}")
+        [ -n "${{ inputs.bar-content }}" ] && args+=(--bar-content "${{ inputs.bar-content }}")
+        [ -n "${{ inputs.bar-content-version }}" ] && args+=(--bar-content-version "${{ inputs.bar-content-version }}")
+        uv run python action/build_catalog.py "${args[@]}" | tee -a "${GITHUB_OUTPUT}"
+        echo "catalog-path=${MERGED}" >> "${GITHUB_OUTPUT}"
+
+    - name: Run benchmark
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+        REPORT="${RUNNER_TEMP}/bar-bench-report.json"
+        echo "report-json-path=${REPORT}" >> "${GITHUB_OUTPUT}"
+        args=(
+          --engine "${{ steps.catalog.outputs.engine-name }}"
+          --bar-content "${{ steps.catalog.outputs.bar-content-name }}"
+          --map "${{ inputs.map }}"
+          --scenario "${{ inputs.scenario }}"
+          --count "${{ inputs.count }}"
+          --project "${{ inputs.gcp-project }}"
+          --region "${{ inputs.gcp-region }}"
+          --artifacts-bucket "${{ inputs.artifacts-bucket }}"
+          --results-bucket "${{ inputs.results-bucket }}"
+          --machine-type "${{ inputs.machine-type }}"
+          --max-run-duration "${{ inputs.max-run-duration }}"
+          --catalog "${{ steps.catalog.outputs.catalog-path }}"
+          --benchmarks-dir benchmarks
+          --report-json "${REPORT}"
+        )
+        [ -n "${{ inputs.description }}" ] && args+=(--description "${{ inputs.description }}")
+        [ -n "${{ inputs.service-account }}" ] && args+=(--service-account "${{ inputs.service-account }}")
+        uv run bar-bench run "${args[@]}"
+
+    - name: Parse report JSON into outputs
+      id: parse
+      shell: bash
+      run: |
+        set -euo pipefail
+        REPORT="${RUNNER_TEMP}/bar-bench-report.json"
+        get() {
+          python3 -c "import json;v=json.load(open('${REPORT}')).get('$1');print('' if v is None else v)"
+        }
+        JOB_UID=$(get job_uid)
+        RESULTS_BASE="${{ inputs.results-bucket }}"
+        {
+          echo "job-uid=${JOB_UID}"
+          echo "results-gcs-uri=${RESULTS_BASE%/}/${JOB_UID}/"
+          echo "report-json-path=${REPORT}"
+          echo "mean-ms=$(get sim_mean_ms_mean)"
+          echo "p95-ms=$(get sim_mean_ms_p95)"
+          echo "median-ms=$(get sim_mean_ms_median)"
+          echo "stddev-ms=$(get sim_mean_ms_stddev)"
+          echo "valid-count=$(get valid)"
+          echo "invalid-count=$(get invalid)"
+        } >> "${GITHUB_OUTPUT}"
+
+    - name: Upload report artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: bar-bench-report-${{ steps.parse.outputs.job-uid }}
+        path: ${{ runner.temp }}/bar-bench-report.json
+        if-no-files-found: ignore

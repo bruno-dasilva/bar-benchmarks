@@ -114,7 +114,7 @@ def _missing_task_indices(
     return sorted(set(range(submitted)) - present)
 
 
-def run(cfg: BatchConfig) -> BatchReport:
+def run(cfg: BatchConfig, *, report_json_path: Path | None = None) -> BatchReport:
     job_uid = _mint_job_id()
     print(f"[run] job_uid={job_uid}", file=sys.stderr)
 
@@ -149,4 +149,7 @@ def run(cfg: BatchConfig) -> BatchReport:
         run_description=cfg.run_description,
     )
     aggregate.print_report(report)
+    if report_json_path is not None:
+        report_json_path.write_text(report.model_dump_json(indent=2))
+        print(f"[run] wrote report JSON → {report_json_path}", file=sys.stderr)
     return report

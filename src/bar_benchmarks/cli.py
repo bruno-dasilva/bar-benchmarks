@@ -62,6 +62,11 @@ def run_cmd(
         "Defaults to benchmark-runner@<project>.iam.gserviceaccount.com.",
     ),
     wheel: Path | None = typer.Option(None, exists=True, dir_okay=False, readable=True),
+    report_json: Path | None = typer.Option(
+        None,
+        "--report-json",
+        help="If set, write the structured BatchReport as JSON to this path after the run.",
+    ),
 ) -> None:
     """Submit a benchmark batch and block until all tasks terminate."""
     from bar_benchmarks.orchestrator import run as orchestrator_run
@@ -94,7 +99,7 @@ def run_cmd(
         service_account=service_account,
         wheel=wheel,
     )
-    orchestrator_run.run(cfg)
+    orchestrator_run.run(cfg, report_json_path=report_json)
 
 
 @app.command("stats")
