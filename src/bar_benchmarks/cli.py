@@ -143,6 +143,16 @@ def lookup_cmd(
     from bar_benchmarks.orchestrator import lookup as lookup_mod
     from bar_benchmarks.stats import aggregate
 
+    import sys
+
+    shape = (
+        f"engine={engine} bar_content={bar_content} map={map_} "
+        f"scenario={scenario} count={count} machine_type={machine_type}"
+    )
+    print(
+        f"[lookup] scanning up to {scan_limit} recent runs in {results_bucket} for {shape}",
+        file=sys.stderr,
+    )
     match = lookup_mod.find_matching_run(
         results_bucket=results_bucket,
         engine=engine,
@@ -155,10 +165,20 @@ def lookup_cmd(
         project=project,
     )
     if match is None:
+        print(
+            f"[lookup] cache miss — no prior run matched; a fresh Batch job will be submitted",
+            file=sys.stderr,
+        )
         print("hit=false")
         return
 
     job_uid = match["job_uid"]
+    submitted_at = match.get("submitted_at") or "unknown"
+    print(
+        f"[lookup] CACHE HIT — reusing prior run {job_uid} submitted at {submitted_at}; "
+        f"re-aggregating its results instead of running a new Batch job",
+        file=sys.stderr,
+    )
     report = aggregate.from_bucket(
         results_bucket,
         job_uid,
@@ -167,8 +187,12 @@ def lookup_cmd(
         run_description=match.get("run_description"),
     )
     report_json.write_text(report.model_dump_json(indent=2))
+    print(
+        f"[lookup] wrote cached BatchReport → {report_json} "
+        f"(valid={report.valid} invalid={report.invalid})",
+        file=sys.stderr,
+    )
     print("hit=true")
     print(f"job-uid={job_uid}")
-    submitted_at = match.get("submitted_at")
-    if submitted_at:
-        print(f"submitted-at={submitted_at}")
+    if match.get("submitted_at"):
+        print(f"submitted-at={match['submitted_at']}")

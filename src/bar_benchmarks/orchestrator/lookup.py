@@ -2,8 +2,16 @@
 
 Every `bar-bench run` writes `<results-bucket>/<job_uid>/run.json` with the
 shape-defining parameters (engine, bar_content, map, scenario, count,
-machine_type). To skip a rerun, we scan the N most recent job_uid prefixes
-and return the first whose run.json matches.
+machine_type) at submit time, and `report.json` at the very end after
+aggregation. A run is cacheable only if BOTH apply:
+
+  1. run.json matches the requested shape exactly, and
+  2. report.json exists AND reports zero invalid tasks (`invalid == 0`).
+
+(1) filters the candidate set; (2) rejects orchestrator crashes (no
+report.json at all) and fully-or-partially-failed batches (VMs that
+never uploaded, infra failures, invalid results). Skip reasons are
+written to stderr so the Actions log explains every "no hit".
 
 Job UIDs embed a Unix timestamp (`bar-bench-<epoch>-<rand>`), so lexical
 sort-by-timestamp gives us "most recent first" without extra metadata.
@@ -13,6 +21,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from typing import Any
 
 _JOB_UID_RE = re.compile(r"^bar-bench-(\d+)-[0-9a-f]+$")
@@ -74,7 +83,7 @@ def find_matching_run(
             meta = json.loads(body)
         except json.JSONDecodeError:
             continue
-        if (
+        if not (
             meta.get("engine") == engine
             and meta.get("bar_content") == bar_content
             and meta.get("map") == map_
@@ -82,5 +91,42 @@ def find_matching_run(
             and meta.get("count") == count
             and meta.get("machine_type") == machine_type
         ):
-            return meta
+            continue
+        # Completion gate — `report.json` is written as the final step of
+        # `bar-bench run`, so its presence signals the orchestrator made
+        # it through aggregation. Its `invalid` field signals whether the
+        # benchmark itself was clean. We require both: the orchestrator
+        # finished AND every submitted task produced a valid result.
+        try:
+            report_body = bucket.blob(f"{job_uid}/report.json").download_as_bytes()
+        except Exception as exc:  # noqa: BLE001 — treat any GCS error as "no sentinel"
+            print(
+                f"[lookup] skipped {job_uid}: no report.json "
+                f"(orchestrator likely didn't finish: {type(exc).__name__})",
+                file=sys.stderr,
+            )
+            continue
+        try:
+            report_data = json.loads(report_body)
+        except json.JSONDecodeError as exc:
+            print(
+                f"[lookup] skipped {job_uid}: report.json is malformed ({exc})",
+                file=sys.stderr,
+            )
+            continue
+        valid = report_data.get("valid", 0) or 0
+        invalid = report_data.get("invalid", 0) or 0
+        if invalid > 0 or valid < count:
+            print(
+                f"[lookup] skipped {job_uid}: run incomplete "
+                f"(valid={valid} invalid={invalid} expected count={count})",
+                file=sys.stderr,
+            )
+            continue
+        print(
+            f"[lookup] candidate {job_uid} passed all gates "
+            f"(shape match, report.json present, valid={valid} invalid=0)",
+            file=sys.stderr,
+        )
+        return {**meta, "_report_valid": valid, "_report_invalid": invalid}
     return None

@@ -92,6 +92,28 @@ def _upload_run_info(cfg: BatchConfig, job_uid: str, submitted_at: datetime) -> 
     print(f"[run] wrote run.json → gs://{bucket_name}/{job_uid}/run.json", file=sys.stderr)
 
 
+def _upload_report_to_bucket(cfg: BatchConfig, job_uid: str, report: BatchReport) -> None:
+    """Upload the aggregated BatchReport to `<results-bucket>/<job_uid>/report.json`.
+
+    Serves as a completion sentinel: `bar-bench lookup` only considers a
+    prior job cacheable if this blob exists, so orchestrator crashes and
+    half-finished runs (which have run.json but never made it to this
+    step) are excluded from cache hits.
+    """
+    from google.cloud import storage
+
+    body = report.model_dump_json(indent=2).encode()
+    bucket_name = cfg.results_bucket.removeprefix("gs://")
+    bucket = storage.Client(project=cfg.project).bucket(bucket_name)
+    bucket.blob(f"{job_uid}/report.json").upload_from_string(
+        body, content_type="application/json"
+    )
+    print(
+        f"[run] wrote report.json → gs://{bucket_name}/{job_uid}/report.json",
+        file=sys.stderr,
+    )
+
+
 def _missing_task_indices(
     results_bucket: str, job_uid: str, submitted: int, *, project: str | None = None
 ) -> list[int]:
@@ -152,4 +174,6 @@ def run(cfg: BatchConfig, *, report_json_path: Path | None = None) -> BatchRepor
     if report_json_path is not None:
         report_json_path.write_text(report.model_dump_json(indent=2))
         print(f"[run] wrote report JSON → {report_json_path}", file=sys.stderr)
+    # Final step — also acts as the cache-hit sentinel for `bar-bench lookup`.
+    _upload_report_to_bucket(cfg, job_uid, report)
     return report
