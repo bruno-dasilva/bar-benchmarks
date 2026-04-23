@@ -63,7 +63,7 @@ BOOT_DISK_TYPE = "pd-balanced"
 # share a VM this disk holds K full copies of the per-task trees —
 # scale SCRATCH_DISK_GB with K if tasks start hitting ENOSPC.
 SCRATCH_DEVICE_NAME = "bar-scratch"
-SCRATCH_DISK_GB = 20
+SCRATCH_DISK_GB = 10
 SCRATCH_DISK_TYPE = "pd-balanced"
 SCRATCH_MOUNT = "/mnt/disks/scratch"
 SCRATCH_CONTAINER_PATH = "/var/bar-scratch"
