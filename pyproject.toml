@@ -11,6 +11,13 @@ dependencies = [
     "scipy>=1.11",
 ]
 
+[project.optional-dependencies]
+plot = [
+    "altair>=5",
+    "pandas>=2",
+    "vl-convert-python>=1.6",
+]
+
 [project.scripts]
 bar-bench = "bar_benchmarks.cli:app"
 

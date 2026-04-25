@@ -231,3 +231,63 @@ def compare_cmd(
     compare_mod.print_comparison(cmp)
     if output is not None:
         output.write_text(cmp.model_dump_json(indent=2))
+
+
+@app.command("plot")
+def plot_cmd(
+    candidate: Path = typer.Option(
+        ..., "--candidate", exists=True, dir_okay=False, readable=True,
+        help="Path to the candidate BatchReport JSON.",
+    ),
+    baseline: Path = typer.Option(
+        ..., "--baseline", exists=True, dir_okay=False, readable=True,
+        help="Path to the baseline BatchReport JSON.",
+    ),
+    output: Path = typer.Option(
+        ..., "--output", "-o",
+        help="Output path; extension picks the format (.png, .svg, .html).",
+    ),
+    label_a: str | None = typer.Option(
+        None, "--label-a",
+        help="Label for the candidate row (default: candidate job_uid).",
+    ),
+    label_b: str | None = typer.Option(
+        None, "--label-b",
+        help="Label for the baseline row (default: baseline job_uid).",
+    ),
+    x_title: str = typer.Option("sim mean (ms)", "--x-title"),
+    title: str | None = typer.Option(
+        None, "--title",
+        help="Chart title; defaults to a generic description.",
+    ),
+) -> None:
+    """Render a horizontal box plot comparing two BatchReports.
+
+    Each per-VM `mean_ms` becomes one sample; whiskers span the full
+    range and raw samples overlay as dots. Requires the `plot` extra:
+    `pip install bar-benchmarks[plot]`.
+    """
+    try:
+        from bar_benchmarks.stats.plot import boxplot_compare
+    except ModuleNotFoundError as e:
+        raise typer.BadParameter(
+            f"missing optional dep '{e.name}'. Install with: "
+            "pip install 'bar-benchmarks[plot]' (or `uv sync --extra plot`)."
+        ) from e
+
+    cand_report = BatchReport.model_validate_json(candidate.read_text())
+    base_report = BatchReport.model_validate_json(baseline.read_text())
+
+    cand = [p.mean_ms for p in cand_report.per_vm]
+    base = [p.mean_ms for p in base_report.per_vm]
+
+    chart = boxplot_compare(
+        cand,
+        base,
+        label_a=label_a or cand_report.job_uid,
+        label_b=label_b or base_report.job_uid,
+        x_title=x_title,
+        title=title or "candidate vs baseline",
+    )
+    chart.save(str(output))
+    typer.echo(f"wrote {output}")
