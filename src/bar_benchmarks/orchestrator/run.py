@@ -94,12 +94,13 @@ def _upload_run_info(cfg: BatchConfig, job_uid: str, submitted_at: datetime) -> 
 
 
 def _upload_report_to_bucket(cfg: BatchConfig, job_uid: str, report: BatchReport) -> None:
-    """Upload the aggregated BatchReport to `<results-bucket>/<job_uid>/report.json`.
+    """Upload the per-job BatchReport to `<results-bucket>/<job_uid>/report.json`.
 
-    Serves as a completion sentinel: `bar-bench lookup` only considers a
-    prior job cacheable if this blob exists, so orchestrator crashes and
-    half-finished runs (which have run.json but never made it to this
-    step) are excluded from cache hits.
+    Single-job scope (this `job_uid` only). Acts as a debugging
+    breadcrumb of "what did this Batch run produce on its own"; the
+    rolling-window aggregate (which is what callers consume) is local to
+    `--report-json` and is recomputable from raw results.json blobs at
+    any time.
     """
     from google.cloud import storage
 
@@ -175,18 +176,58 @@ def run(cfg: BatchConfig, *, report_json_path: Path | None = None) -> BatchRepor
     if missing:
         print(f"[run] missing results for task indices: {missing}", file=sys.stderr)
 
-    report = aggregate.from_bucket(
-        cfg.results_bucket,
-        job_uid,
+    from google.cloud import storage
+
+    storage_client = storage.Client(project=cfg.project)
+    bucket = storage_client.bucket(cfg.results_bucket.removeprefix("gs://"))
+    new_results = list(aggregate.list_job_results(storage_client, bucket, job_uid))
+
+    # Per-job report (single-job scope) → uploaded to the bucket as a
+    # debugging breadcrumb at <job_uid>/report.json.
+    per_job_report = aggregate.summarize(
+        new_results,
         submitted=cfg.count * cfg.iterations,
-        project=cfg.project,
+        job_uid=job_uid,
         run_description=cfg.run_description,
     )
-    report = cost.apply_from_batch_api(report, project=cfg.project)
-    aggregate.print_report(report)
+    per_job_report = cost.apply_from_batch_api(per_job_report, project=cfg.project)
+    _upload_report_to_bucket(cfg, job_uid, per_job_report)
+
+    # Rolling-window report (this run + historical matching results) →
+    # this is what callers see via --report-json and what the Action
+    # surfaces in its outputs.
+    rolling_report, contributing = aggregate.from_window(
+        results_bucket=cfg.results_bucket,
+        engine=cfg.engine_name,
+        bar_content=cfg.bar_content_name,
+        map_=cfg.map_name,
+        scenario=cfg.scenario_dir.name,
+        machine_type=cfg.machine_type,
+        project=cfg.project,
+        client=storage_client,
+        extra_results=new_results,
+        extra_submitted=cfg.count * cfg.iterations,
+        exclude_job_uids={job_uid},
+        run_description=cfg.run_description,
+    )
+    print(
+        f"[run] rolling window contributed {len(contributing)} prior job(s); "
+        f"pooled valid={rolling_report.valid} invalid={rolling_report.invalid}",
+        file=sys.stderr,
+    )
+    # rolling_report.job_uid is this run's job_uid (extras' batch_id), so
+    # the Batch API cost lookup below resolves the just-completed job's
+    # task timings — i.e. the cost reflects the fresh compute we just
+    # paid for, not a sum across the historical pool.
+    rolling_report = rolling_report.model_copy(
+        update={
+            "total_billable_s": per_job_report.total_billable_s,
+            "price_per_vm_hour_usd": per_job_report.price_per_vm_hour_usd,
+            "compute_usd": per_job_report.compute_usd,
+        }
+    )
+    aggregate.print_report(rolling_report)
     if report_json_path is not None:
-        report_json_path.write_text(report.model_dump_json(indent=2))
+        report_json_path.write_text(rolling_report.model_dump_json(indent=2))
         print(f"[run] wrote report JSON → {report_json_path}", file=sys.stderr)
-    # Final step — also acts as the cache-hit sentinel for `bar-bench lookup`.
-    _upload_report_to_bucket(cfg, job_uid, report)
-    return report
+    return rolling_report

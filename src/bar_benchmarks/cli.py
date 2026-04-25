@@ -131,86 +131,71 @@ def lookup_cmd(
     bar_content: str = typer.Option(..., help="Bar-content catalog name to match."),
     map_: str = typer.Option(..., "--map", help="Map catalog name to match."),
     scenario: str = typer.Option(..., help="Scenario folder name to match."),
-    count: int = typer.Option(..., min=1, help="VM count to match."),
-    iterations: int = typer.Option(
-        1,
-        min=1,
-        help="Per-VM iteration count to match. Defaults to 1 so pre-iterations runs match.",
-    ),
     machine_type: str = typer.Option(..., help="Machine type to match."),
     results_bucket: str = typer.Option(DEFAULT_RESULTS_BUCKET),
     project: str = typer.Option(DEFAULT_PROJECT),
-    scan_limit: int = typer.Option(100, min=1, help="Max recent run.json blobs to scan."),
+    scan_limit: int = typer.Option(100, min=1, help="Max recent job_uids to scan."),
+    min_samples: int = typer.Option(
+        50,
+        min=1,
+        help="Skip the Batch run when the rolling window has at least this many valid results.",
+    ),
     report_json: Path = typer.Option(
         ...,
         "--report-json",
-        help="On hit, write the aggregated BatchReport here.",
+        help="On hit, write the rolling-aggregate BatchReport here.",
     ),
 ) -> None:
-    """Look for a prior run matching these parameters; on hit, re-aggregate it.
+    """Aggregate the rolling window of recent matching runs; skip if n ≥ min-samples.
 
-    Prints `hit=true|false` and `job-uid=<id>` on stdout (both suitable to
-    append to $GITHUB_OUTPUT). Always exits 0; inspect the `hit=` line.
+    Pools every `results.json` from the last `--scan-limit` jobs whose
+    `(engine, bar_content, map, scenario, machine_type)` matches. If the
+    pool has at least `--min-samples` valid results, prints `hit=true`
+    and writes the synthesized BatchReport to `--report-json`. Otherwise
+    prints `hit=false` and the caller should run a fresh Batch job.
+
+    Prints `hit=true|false` and `job-uid=<id>` on stdout (both suitable
+    to append to `$GITHUB_OUTPUT`). Always exits 0; inspect the `hit=`
+    line.
     """
     from bar_benchmarks.orchestrator import lookup as lookup_mod
-    from bar_benchmarks.stats import aggregate, cost
+    from bar_benchmarks.stats import cost
 
     import sys
 
     shape = (
         f"engine={engine} bar_content={bar_content} map={map_} "
-        f"scenario={scenario} count={count} iterations={iterations} "
-        f"machine_type={machine_type}"
+        f"scenario={scenario} machine_type={machine_type}"
     )
     print(
-        f"[lookup] scanning up to {scan_limit} recent runs in {results_bucket} for {shape}",
+        f"[lookup] scanning up to {scan_limit} recent jobs in {results_bucket} for {shape} "
+        f"(min_samples={min_samples})",
         file=sys.stderr,
     )
-    match = lookup_mod.find_matching_run(
+    report, contributing, hit = lookup_mod.find_rolling_window(
         results_bucket=results_bucket,
         engine=engine,
         bar_content=bar_content,
         map_=map_,
         scenario=scenario,
-        count=count,
-        iterations=iterations,
         machine_type=machine_type,
+        min_samples=min_samples,
         scan_limit=scan_limit,
         project=project,
     )
-    if match is None:
-        print(
-            f"[lookup] cache miss — no prior run matched; a fresh Batch job will be submitted",
-            file=sys.stderr,
-        )
+    if not hit:
         print("hit=false")
         return
 
-    job_uid = match["job_uid"]
-    submitted_at = match.get("submitted_at") or "unknown"
-    print(
-        f"[lookup] CACHE HIT — reusing prior run {job_uid} submitted at {submitted_at}; "
-        f"re-aggregating its results instead of running a new Batch job",
-        file=sys.stderr,
-    )
-    report = aggregate.from_bucket(
-        results_bucket,
-        job_uid,
-        submitted=count * iterations,
-        project=project,
-        run_description=match.get("run_description"),
-    )
     report = cost.apply_cached(report)
     report_json.write_text(report.model_dump_json(indent=2))
     print(
-        f"[lookup] wrote cached BatchReport → {report_json} "
-        f"(valid={report.valid} invalid={report.invalid})",
+        f"[lookup] wrote rolling BatchReport → {report_json} "
+        f"(valid={report.valid} invalid={report.invalid} jobs={len(contributing)})",
         file=sys.stderr,
     )
     print("hit=true")
-    print(f"job-uid={job_uid}")
-    if match.get("submitted_at"):
-        print(f"submitted-at={match['submitted_at']}")
+    print(f"job-uid={report.job_uid}")
 
 
 @app.command("compare")

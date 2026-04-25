@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import json
 import math
+import re
 import statistics
+import sys
 from collections import Counter
 from collections.abc import Iterable
 
 from bar_benchmarks.types import BatchReport, PerVmSim, Result
+
+_JOB_UID_RE = re.compile(r"^bar-bench-(\d+)-[0-9a-f]+$")
 
 
 def _p95(values: list[float]) -> float | None:
@@ -153,19 +158,165 @@ def from_bucket(
 
         client = storage.Client(project=project)
     bucket = client.bucket(results_bucket.removeprefix("gs://"))
-    prefix = f"{job_uid}/"
-    results: list[Result] = []
-    for blob in client.list_blobs(bucket, prefix=prefix):
-        if not blob.name.endswith("/results.json"):
-            continue
-        body = blob.download_as_bytes()
-        results.append(Result.model_validate_json(body))
+    results = list(list_job_results(client, bucket, job_uid))
     return summarize(
         results,
         submitted=submitted,
         job_uid=job_uid,
         run_description=run_description,
     )
+
+
+def _list_job_uid_prefixes(client, bucket) -> list[str]:
+    """Return top-level `bar-bench-*` directories under the bucket."""
+    iterator = client.list_blobs(bucket, prefix="", delimiter="/")
+    # Force pagination so iterator.prefixes populates.
+    for _ in iterator.pages:
+        pass
+    out: list[str] = []
+    for pref in iterator.prefixes:
+        name = pref.rstrip("/")
+        if _JOB_UID_RE.match(name):
+            out.append(name)
+    return out
+
+
+def list_job_results(client, bucket, job_uid: str) -> Iterable[Result]:
+    """Yield parsed Result objects for every results.json under `<job_uid>/`."""
+    prefix = f"{job_uid}/"
+    for blob in client.list_blobs(bucket, prefix=prefix):
+        if not blob.name.endswith("/results.json"):
+            continue
+        body = blob.download_as_bytes()
+        yield Result.model_validate_json(body)
+
+
+def from_window(
+    *,
+    results_bucket: str,
+    engine: str,
+    bar_content: str,
+    map_: str,
+    scenario: str,
+    machine_type: str,
+    scan_limit: int = 100,
+    project: str | None = None,
+    client=None,
+    extra_results: Iterable[Result] = (),
+    extra_submitted: int = 0,
+    exclude_job_uids: Iterable[str] = (),
+    run_description: str | None = None,
+) -> tuple[BatchReport, list[str]]:
+    """Pool results across recent jobs whose run.json shape matches.
+
+    Scans up to `scan_limit` most-recent `bar-bench-*` job_uids; for each
+    job whose run.json has the same engine/bar_content/map/scenario/
+    machine_type, every results.json under that prefix is added to the
+    pool. `count` and `iterations` are NOT part of the match — small
+    runs and large runs feed the same window.
+
+    `extra_results` / `extra_submitted` let a caller (e.g. `bar-bench
+    run` after a fresh batch) fold in just-produced results without
+    re-listing their blobs. `exclude_job_uids` skips matching run.jsons —
+    used by `bar-bench run` to avoid double-counting the job whose
+    run.json was just uploaded but whose results.json files are also
+    being passed via `extra_results`.
+
+    Returns the synthesized BatchReport plus the list of contributing
+    historical job_uids (most-recent first). The synthesized
+    `job_uid` field is the most recent contributing job_uid (or the
+    provided `extra_results` job's batch_id if the historical pool is
+    empty), so downstream consumers like the Action's
+    `results-gcs-uri` output still point at a real bucket prefix.
+    """
+    if client is None:
+        from google.cloud import storage
+
+        client = storage.Client(project=project)
+    bucket = client.bucket(results_bucket.removeprefix("gs://"))
+
+    job_uids = _list_job_uid_prefixes(client, bucket)
+
+    def ts(u: str) -> int:
+        m = _JOB_UID_RE.match(u)
+        return int(m.group(1)) if m else 0
+
+    recent = sorted(job_uids, key=ts, reverse=True)[:scan_limit]
+    excluded = set(exclude_job_uids)
+
+    pool: list[Result] = []
+    submitted_total = 0
+    contributing: list[str] = []
+
+    for job_uid in recent:
+        if job_uid in excluded:
+            continue
+        try:
+            body = bucket.blob(f"{job_uid}/run.json").download_as_bytes()
+        except Exception:
+            continue
+        try:
+            meta = json.loads(body)
+        except json.JSONDecodeError:
+            continue
+        if not (
+            meta.get("engine") == engine
+            and meta.get("bar_content") == bar_content
+            and meta.get("map") == map_
+            and meta.get("scenario") == scenario
+            and meta.get("machine_type") == machine_type
+        ):
+            continue
+        try:
+            job_results = list(list_job_results(client, bucket, job_uid))
+        except Exception as exc:  # noqa: BLE001 — log and skip a flaky job
+            print(
+                f"[window] skipped {job_uid}: results listing failed "
+                f"({type(exc).__name__}: {exc})",
+                file=sys.stderr,
+            )
+            continue
+        n_valid = sum(1 for r in job_results if r.valid)
+        job_submitted = int(meta.get("count", 0)) * int(meta.get("iterations", 1) or 1)
+        # Fall back to actual results count when run.json's count is missing.
+        if job_submitted == 0:
+            job_submitted = len(job_results)
+        pool.extend(job_results)
+        submitted_total += job_submitted
+        contributing.append(job_uid)
+        print(
+            f"[window] {job_uid}: matched (valid={n_valid}/{len(job_results)}, "
+            f"submitted={job_submitted})",
+            file=sys.stderr,
+        )
+
+    extras = list(extra_results)
+    pool.extend(extras)
+    submitted_total += extra_submitted
+
+    if extras and extras[0].batch_id and extras[0].batch_id not in excluded:
+        synth_job_uid = extras[0].batch_id
+    elif contributing:
+        synth_job_uid = contributing[0]
+    elif extras:
+        synth_job_uid = extras[0].batch_id or "rolling-empty"
+    else:
+        synth_job_uid = "rolling-empty"
+
+    if run_description is None:
+        run_description = (
+            f"rolling aggregate of {len(contributing)} job(s) over last "
+            f"{scan_limit} (matched: engine={engine}, bar_content={bar_content}, "
+            f"map={map_}, scenario={scenario}, machine_type={machine_type})"
+        )
+
+    report = summarize(
+        pool,
+        submitted=submitted_total,
+        job_uid=synth_job_uid,
+        run_description=run_description,
+    )
+    return report, contributing
 
 
 def print_report(report: BatchReport) -> None:

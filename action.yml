@@ -96,15 +96,24 @@ inputs:
     default: ${{ github.token }}
   lookup-prior-results:
     description: >-
-      If 'true', scan the results bucket for a prior run with the same
-      (engine, bar-content, map, scenario, count, machine-type) and reuse
-      its aggregated report instead of submitting a new Batch job.
+      If 'true', aggregate the rolling window of recent matching runs
+      (same engine, bar-content, map, scenario, machine-type) and skip a
+      fresh Batch submission when the pool already has at least
+      lookup-min-samples valid results. The rolling aggregate is what
+      the action's mean-ms / p95-ms / etc. outputs reflect either way —
+      with or without a fresh run on top.
     required: false
     default: "false"
   lookup-scan-limit:
     description: "Max recent job UIDs to inspect when lookup-prior-results is true."
     required: false
     default: "100"
+  lookup-min-samples:
+    description: >-
+      Skip the Batch submission when the rolling window has at least
+      this many valid results.
+    required: false
+    default: "50"
 
 outputs:
   job-uid:
@@ -199,12 +208,11 @@ runs:
           --bar-content "${{ steps.catalog.outputs.bar-content-name }}" \
           --map "${{ inputs.map }}" \
           --scenario "${{ inputs.scenario }}" \
-          --count "${{ inputs.count }}" \
-          --iterations "${{ inputs.iterations }}" \
           --machine-type "${{ inputs.machine-type }}" \
           --results-bucket "${{ inputs.results-bucket }}" \
           --project "${{ inputs.gcp-project }}" \
           --scan-limit "${{ inputs.lookup-scan-limit }}" \
+          --min-samples "${{ inputs.lookup-min-samples }}" \
           --report-json "${REPORT}" \
           | tee -a "${GITHUB_OUTPUT}"
 
