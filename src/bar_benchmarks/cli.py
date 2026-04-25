@@ -232,10 +232,11 @@ def compare_cmd(
         help="Two-sided significance level; CI confidence is (1 - alpha).",
     ),
 ) -> None:
-    """Welch's t-test comparison of two BatchReports.
+    """BCa bootstrap comparison of two BatchReports.
 
-    Emits a 95% CI on the per-VM sim mean difference (candidate − baseline)
-    and its rescaling to percent of baseline.
+    Emits a CI on the difference of per-VM sim trimmed means
+    (candidate − baseline), rescaled to percent of the trimmed baseline.
+    Trim is 20% per side when min(n) ≤ 20, else 10%.
     """
     from bar_benchmarks.stats import compare as compare_mod
 

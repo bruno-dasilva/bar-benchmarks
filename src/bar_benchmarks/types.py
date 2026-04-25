@@ -127,16 +127,23 @@ class BatchReport(BaseModel):
 
 
 class ComparisonReport(BaseModel):
-    """Welch's t-test comparison of candidate vs baseline sim frame time.
+    """BCa bootstrap comparison of candidate vs baseline sim frame time.
 
     The sample unit is the per-VM sim mean (`PerVmSim.mean_ms`): each VM
-    contributes one observation. CI is the Welch 2-sided interval on the
-    mean difference (candidate − baseline), rescaled to percent of the
-    baseline mean. `significant` is True iff the CI excludes zero.
+    contributes one observation. The CI is a BCa (bias-corrected and
+    accelerated) bootstrap two-sided interval on the difference of
+    per-side trimmed means (candidate − baseline). Trim fraction is 20%
+    per side when `min(n_cand, n_base) ≤ 20`, else 10%. The percent CI
+    is rescaled by the trimmed baseline mean. `significant` is True iff
+    the CI excludes zero.
+
+    `cand_mean_ms` / `base_mean_ms` remain the untrimmed sample means
+    for reference; `cand_trimmed_mean_ms` / `base_trimmed_mean_ms` are
+    the values that drive the t-test-equivalent CI.
 
     Any of the numeric fields may be None when there aren't enough
-    samples on one side (need n ≥ 2 per group) or the baseline mean is
-    zero.
+    samples on one side (need n ≥ 2 per group) or the baseline trimmed
+    mean is zero.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -147,13 +154,16 @@ class ComparisonReport(BaseModel):
     n_base: int
     cand_mean_ms: float | None = None
     base_mean_ms: float | None = None
+    cand_trimmed_mean_ms: float | None = None
+    base_trimmed_mean_ms: float | None = None
+    trim_fraction: float | None = None
     delta_ms: float | None = None
     delta_ms_low: float | None = None
     delta_ms_high: float | None = None
     delta_pct: float | None = None
     delta_pct_low: float | None = None
     delta_pct_high: float | None = None
-    t_stat: float | None = None
-    df: float | None = None
+    n_resamples: int | None = None
+    ci_method: str = "BCa"
     alpha: float = 0.05
     significant: bool = False
